@@ -60,7 +60,7 @@ func TestGenerate_RendersCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if _, err := policy.Render(tc.Policies, tc.Pods, tc.Namespaces); err != nil {
+	if _, err := policy.RenderBasic(tc.Policies, tc.Pods, tc.Namespaces); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 }

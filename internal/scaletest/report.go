@@ -28,13 +28,15 @@ type Report struct {
 
 	GenerateDuration time.Duration
 	RenderDuration   time.Duration
+
+	Mem MemStats
 }
 
 // Summarize computes a Report from an already-generated TestCase and the
 // Tuples policy.Render produced from it. It is a pure function of its
-// arguments (durations are passed in rather than measured internally) so
-// it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, tuples []policy.Tuple, genDur, renderDur time.Duration) *Report {
+// arguments (durations and memory stats are passed in rather than measured
+// internally) so it's straightforward to unit test without timing flakiness.
+func Summarize(tc *TestCase, tuples []policy.Tuple, genDur, renderDur time.Duration, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {
@@ -58,6 +60,7 @@ func Summarize(tc *TestCase, tuples []policy.Tuple, genDur, renderDur time.Durat
 		Tuples:           len(tuples),
 		GenerateDuration: genDur,
 		RenderDuration:   renderDur,
+		Mem:              mem,
 	}
 	r.TuplesPerPod = statsOf(tuplesPerPod, len(tc.Pods))
 	r.TuplesPerNode = statsOf(tuplesPerNode, len(nodes))
@@ -99,5 +102,23 @@ func (r *Report) String() string {
 	fmt.Fprintf(&b, "tuples/node: min=%d max=%d avg=%.1f\n", r.TuplesPerNode.Min, r.TuplesPerNode.Max, r.TuplesPerNode.Avg)
 	fmt.Fprintf(&b, "generate:    %s\n", r.GenerateDuration)
 	fmt.Fprintf(&b, "render:      %s\n", r.RenderDuration)
+	fmt.Fprintf(&b, "heap alloc:  start=%s min=%s max=%s end=%s\n",
+		formatBytes(r.Mem.Start), formatBytes(r.Mem.Min), formatBytes(r.Mem.Max), formatBytes(r.Mem.End))
 	return b.String()
+}
+
+// formatBytes renders a byte count using the largest binary unit (KiB, MiB,
+// GiB) that keeps the value >= 1, matching the precision scale testers care
+// about most (memory pressure at MiB/GiB scale, not byte-exact accounting).
+func formatBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%dB", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
