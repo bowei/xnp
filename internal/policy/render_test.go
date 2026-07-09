@@ -52,7 +52,7 @@ func sortTuples(tuples []Tuple) []Tuple {
 func TestRender_UnisolatedPod(t *testing.T) {
 	pods := []*corev1.Pod{pod("ns", "a", "10.0.0.1", nil)}
 
-	tuples, err := Render(nil, pods, nil)
+	tuples, err := RenderBasic(nil, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestRender_IsolatedNoRules(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRender_EmptyFromAndPorts(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestRender_NamespaceSelectorPeer(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, namespaces)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, namespaces)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestRender_IPBlockPeer(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestRender_PortRange(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestRender_MultiplePoliciesUnioned(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{npA, npB}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{npA, npB}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestRender_DefaultPolicyTypes(t *testing.T) {
 		},
 	}
 
-	tuples, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestRender_NamedPortUnsupported(t *testing.T) {
 		},
 	}
 
-	if _, err := Render([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+	if _, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
 		t.Fatal("Render: expected error for named port, got nil")
 	}
 }
