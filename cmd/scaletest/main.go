@@ -37,21 +37,25 @@ func renderCmd() *cobra.Command {
 		Use:   "render",
 		Short: "Generate a synthetic namespace/pod/policy set and render it",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			stopMem := scaletest.TrackMemory(50 * time.Millisecond)
+
 			start := time.Now()
 			tc, err := scaletest.Generate(cfg)
 			genDur := time.Since(start)
 			if err != nil {
+				stopMem()
 				return err
 			}
 
 			start = time.Now()
-			tuples, err := policy.Render(tc.Policies, tc.Pods, tc.Namespaces)
+			tuples, err := policy.RenderBasic(tc.Policies, tc.Pods, tc.Namespaces)
 			renderDur := time.Since(start)
+			mem := stopMem()
 			if err != nil {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			report := scaletest.Summarize(tc, tuples, genDur, renderDur)
+			report := scaletest.Summarize(tc, tuples, genDur, renderDur, mem)
 			_, err = fmt.Fprint(cmd.OutOrStdout(), report.String())
 			return err
 		},
