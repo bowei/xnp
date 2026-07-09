@@ -20,11 +20,12 @@ where:
 * direction: egress or ingress
 * verdict: allow or deny
 
-## First implementation
+## Scale testing
 
-Create a internal/policy/render.go that takes a set of list of network policies
-and a list of Pods and outputs the list of tuples. This will be used as a baseline
-for optimizations/algorithm changes for the rendering algorithm.
+internal/scaletest will contain scale testing related utilities.
+
+* internal/scaletest/testcase.go will generate large sets of network 
+  policies and pods across many namespaces.
 
 ## command line
 
