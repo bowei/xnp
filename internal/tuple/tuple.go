@@ -9,20 +9,42 @@ import (
 )
 
 // Direction is the traffic direction a Tuple applies to.
-type Direction string
+type Direction uint8
 
 const (
-	DirectionIngress Direction = "ingress"
-	DirectionEgress  Direction = "egress"
+	DirectionIngress Direction = iota
+	DirectionEgress
 )
+
+func (d Direction) String() string {
+	switch d {
+	case DirectionIngress:
+		return "ingress"
+	case DirectionEgress:
+		return "egress"
+	default:
+		return "unknown"
+	}
+}
 
 // Verdict is the action a Tuple applies.
-type Verdict string
+type Verdict uint8
 
 const (
-	VerdictAllow Verdict = "allow"
-	VerdictDeny  Verdict = "deny"
+	VerdictAllow Verdict = iota
+	VerdictDeny
 )
+
+func (v Verdict) String() string {
+	switch v {
+	case VerdictAllow:
+		return "allow"
+	case VerdictDeny:
+		return "deny"
+	default:
+		return "unknown"
+	}
+}
 
 // Tuple is one compiled filtering rule to be enforced at Pod. Rules for a
 // given (Pod, Direction) form an ordered, first-match-wins chain: explicit
