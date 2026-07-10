@@ -26,6 +26,7 @@ internal/scaletest will contain scale testing related utilities.
 
 * internal/scaletest/testcase.go will generate large sets of network 
   policies and pods across many namespaces.
+* hack/profile.sh will run a profiling of the rendering.
 
 ## command line
 

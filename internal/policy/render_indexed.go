@@ -26,6 +26,14 @@ import (
 // Output tuple set is identical to RenderBasic's (see the differential
 // tests in render_indexed_test.go and the cross-checks in render_test.go),
 // though not necessarily in the same order.
+//
+// Tuple count per pod is knowable from its group template alone (ingress +
+// egress entry count × own-IP count), so this sizes the result slice exactly
+// once up front and writes into it directly, the same way
+// materializeTuplesParallel does for RenderIndexedParallel — as opposed to
+// growing tuples via append, which at this output size (tens of millions of
+// Tuples for large clusters) burns several times the final live size in
+// doubling-and-copy churn along the way.
 func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) ([]Tuple, error) {
 	st, err := prepareIndexedRender(policies, pods, namespaces)
 	if err != nil {
@@ -33,8 +41,10 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 	}
 
 	groupCache := map[groupKey]*groupTemplates{}
+	templates := make([]*groupTemplates, len(st.sortedPods))
+	ownIPs := make([][]string, len(st.sortedPods))
+	offsets := make([]int, len(st.sortedPods)+1)
 
-	var tuples []Tuple
 	for i, pod := range st.sortedPods {
 		key := groupKey{pod.Namespace, st.podIdentity[i]}
 		tmpl, ok := groupCache[key]
@@ -45,14 +55,28 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 			}
 			groupCache[key] = tmpl
 		}
+		templates[i] = tmpl
 
+		ips := podIPs(pod)
+		ownIPs[i] = ips
+		n := len(ips)
+		if n == 0 {
+			n = 1
+		}
+		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
+	}
+
+	tuples := make([]Tuple, offsets[len(st.sortedPods)])
+	for i, pod := range st.sortedPods {
+		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
-		ownIPs := podIPs(pod)
+		dst := tuples[offsets[i]:offsets[i+1]]
+		n := 0
 		for _, tt := range tmpl.ingress {
-			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, tt.verdict, tt.peer, tt.port)...)
+			n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port))
 		}
 		for _, tt := range tmpl.egress {
-			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionEgress, tt.verdict, tt.peer, tt.port)...)
+			n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port))
 		}
 	}
 

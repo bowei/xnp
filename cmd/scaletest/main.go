@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"time"
 
@@ -36,6 +37,7 @@ func renderCmd() *cobra.Command {
 	var renderer string
 	var workers int
 	var cpuProfile string
+	var memProfile string
 
 	cmd := &cobra.Command{
 		Use:   "render",
@@ -88,8 +90,22 @@ func renderCmd() *cobra.Command {
 			}
 
 			report := scaletest.Summarize(tc, tuples, genDur, renderDur, mem)
-			_, err = fmt.Fprint(cmd.OutOrStdout(), report.String())
-			return err
+			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
+				return err
+			}
+
+			if memProfile != "" {
+				f, err := os.Create(memProfile)
+				if err != nil {
+					return fmt.Errorf("create mem profile: %w", err)
+				}
+				defer f.Close()
+				runtime.GC()
+				if err := pprof.WriteHeapProfile(f); err != nil {
+					return fmt.Errorf("write mem profile: %w", err)
+				}
+			}
+			return nil
 		},
 	}
 
@@ -104,6 +120,7 @@ func renderCmd() *cobra.Command {
 	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic", "parallel", "indexed", or "indexed-parallel"`)
 	flags.IntVar(&workers, "workers", 0, "worker goroutines for --renderer=parallel or --renderer=indexed-parallel (<=0 means runtime.GOMAXPROCS(0))")
 	flags.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU profile to this file")
+	flags.StringVar(&memProfile, "memprofile", "", "write a heap profile to this file after rendering")
 
 	cfg.RulesPerPolicy = def.RulesPerPolicy
 	cfg.PeersPerRule = def.PeersPerRule
