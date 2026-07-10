@@ -56,6 +56,7 @@ func TestRender_UnisolatedPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, nil, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -78,6 +79,7 @@ func TestRender_IsolatedNoRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
@@ -101,6 +103,7 @@ func TestRender_EmptyFromAndPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -139,6 +142,7 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	// Only the "web" pod is selected/isolated; others are unisolated.
 	var webTuples []Tuple
@@ -183,6 +187,7 @@ func TestRender_NamespaceSelectorPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, namespaces, tuples)
 
 	var webTuples []Tuple
 	for _, tup := range tuples {
@@ -218,6 +223,7 @@ func TestRender_IPBlockPeer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "192.168.0.0/16", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -248,6 +254,7 @@ func TestRender_PortRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: int32p(8000), EndPort: int32p(8080), Protocol: corev1.ProtocolTCP, Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -288,6 +295,7 @@ func TestRender_MultiplePoliciesUnioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{npA, npB}, pods, nil, tuples)
 
 	var webIngress []Tuple
 	for _, tup := range tuples {
@@ -324,6 +332,7 @@ func TestRender_DefaultPolicyTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
@@ -349,10 +358,27 @@ func TestRender_NamedPortUnsupported(t *testing.T) {
 	if _, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
 		t.Fatal("Render: expected error for named port, got nil")
 	}
+	if _, err := RenderIndexed([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+		t.Fatal("RenderIndexed: expected error for named port, got nil")
+	}
 }
 
 func nsName(namespace, name string) types.NamespacedName {
 	return types.NamespacedName{Namespace: namespace, Name: name}
+}
+
+// assertIndexedMatchesBasic is a differential check run alongside every
+// hand-written RenderBasic test case in this file, so RenderIndexed is
+// exercised against the same edge cases (unisolated pods, IPBlocks, port
+// ranges, PolicyTypes defaulting, namespaceSelector peers, ...) without
+// duplicating each test's fixture.
+func assertIndexedMatchesBasic(t *testing.T, policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace, basic []Tuple) {
+	t.Helper()
+	indexed, err := RenderIndexed(policies, pods, namespaces)
+	if err != nil {
+		t.Fatalf("RenderIndexed: %v", err)
+	}
+	assertTuples(t, indexed, basic)
 }
 
 func assertTuples(t *testing.T, got, want []Tuple) {
