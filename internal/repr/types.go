@@ -9,42 +9,10 @@ package repr
 import (
 	"fmt"
 	"net/netip"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 )
-
-// StringID is an interned string identity, allocated by SymbolTable.
-type StringID uint32
-
-// SymbolTable interns strings into dense StringIDs so repeated values
-// (namespace names foremost — every pod in a namespace carries its own
-// decoded copy of the same string) collapse to one allocation, and
-// comparisons in hot paths become integer equality.
-type SymbolTable struct {
-	ids    map[string]StringID
-	values []string
-}
-
-func NewSymbolTable() *SymbolTable {
-	return &SymbolTable{ids: map[string]StringID{}}
-}
-
-func (t *SymbolTable) Intern(s string) StringID {
-	if id, ok := t.ids[s]; ok {
-		return id
-	}
-	id := StringID(len(t.values))
-	t.ids[s] = id
-	t.values = append(t.values, s)
-	return id
-}
-
-// String resolves id back to its original string.
-func (t *SymbolTable) String(id StringID) string {
-	return t.values[id]
-}
 
 // kvPair packs a label key/value StringID pair into a single comparable,
 // hashable, sortable value (key in the high bits so sorting by kvPair also
@@ -59,39 +27,6 @@ func newKVPair(key, value StringID) kvPair {
 
 func (p kvPair) key() StringID   { return StringID(p >> 32) }
 func (p kvPair) value() StringID { return StringID(uint32(p)) }
-
-// LabelSet is a pod's or namespace's labels canonicalized into interned
-// integer form: kv gives O(1) key lookup, sorted gives a canonical,
-// hashable, iterable form for later identity/index work (see lookup.go).
-type LabelSet struct {
-	kv     map[StringID]StringID
-	sorted []kvPair
-}
-
-// NewLabelSet interns labels' keys/values via tbl and returns their
-// canonical LabelSet form.
-func NewLabelSet(labels map[string]string, tbl *SymbolTable) LabelSet {
-	kv := make(map[StringID]StringID, len(labels))
-	sorted := make([]kvPair, 0, len(labels))
-	for k, v := range labels {
-		key, val := tbl.Intern(k), tbl.Intern(v)
-		kv[key] = val
-		sorted = append(sorted, newKVPair(key, val))
-	}
-	slices.Sort(sorted)
-	return LabelSet{kv: kv, sorted: sorted}
-}
-
-// Get returns the interned value StringID for key, if present.
-func (ls LabelSet) Get(key StringID) (StringID, bool) {
-	v, ok := ls.kv[key]
-	return v, ok
-}
-
-// Len is the number of labels in the set.
-func (ls LabelSet) Len() int {
-	return len(ls.sorted)
-}
 
 // Protocol is corev1.Protocol packed into a byte instead of a string; the
 // NetworkPolicy API only ever produces one of the three values below.

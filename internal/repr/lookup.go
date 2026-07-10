@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -170,8 +171,8 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 		}
 	}
 
-	sort.Slice(cs.exact, func(i, j int) bool { return cs.exact[i] < cs.exact[j] })
-	sort.Slice(cs.existsKeys, func(i, j int) bool { return cs.existsKeys[i] < cs.existsKeys[j] })
+	slices.Sort(cs.exact)
+	slices.Sort(cs.existsKeys)
 	return cs, nil
 }
 

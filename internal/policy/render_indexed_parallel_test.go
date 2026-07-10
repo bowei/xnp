@@ -40,11 +40,11 @@ func TestRenderIndexedParallel_MatchesBasic(t *testing.T) {
 func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 	var pods []*corev1.Pod
 	var namespaces []*corev1.Namespace
-	for n := 0; n < 4; n++ {
+	for n := range 4 {
 		nsName := fmt.Sprintf("ns-%d", n)
 		namespaces = append(namespaces, namespace(nsName, map[string]string{"team": fmt.Sprintf("team-%d", n%2)}))
 		for _, app := range []string{"web", "worker"} {
-			for r := 0; r < 25; r++ {
+			for r := range 25 {
 				pods = append(pods, pod(nsName, fmt.Sprintf("%s-%d", app, r), fmt.Sprintf("10.%d.0.%d", n, r), map[string]string{"app": app}))
 			}
 		}

@@ -2,7 +2,7 @@ package policy
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -142,7 +142,7 @@ func prepareIndexedRender(policies []*networkingv1.NetworkPolicy, pods []*corev1
 		for id := range byID {
 			ids = append(ids, id)
 		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		slices.Sort(ids)
 		identitiesByNS[ns] = ids
 	}
 

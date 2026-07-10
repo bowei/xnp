@@ -22,9 +22,11 @@ func namespace(name string, labels map[string]string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
 }
 
-func int32p(v int32) *int32 { return &v }
+//go:fix inline
+func int32p(v int32) *int32 { return new(v) }
 
-func protoP(p corev1.Protocol) *corev1.Protocol { return &p }
+//go:fix inline
+func protoP(p corev1.Protocol) *corev1.Protocol { return new(p) }
 
 // sortTuples gives tests a stable order to compare against, independent of
 // the (documented but not load-bearing) emission order.

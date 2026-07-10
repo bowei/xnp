@@ -2,7 +2,7 @@ package repr
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -105,7 +105,7 @@ func TestInvertedIndex_MatchesCompiledSelector(t *testing.T) {
 			}
 		}
 		gotIDs := idx.Match(ls)
-		sort.Slice(gotIDs, func(a, b int) bool { return gotIDs[a] < gotIDs[b] })
+		slices.Sort(gotIDs)
 
 		if fmt.Sprint(gotIDs) != fmt.Sprint(wantIDs) {
 			t.Errorf("labels %d (%v): InvertedIndex.Match = %v, want %v", j, lbls, gotIDs, wantIDs)

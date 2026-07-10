@@ -28,10 +28,10 @@ func buildRandomFixture(seed int64) ([]*networkingv1.NetworkPolicy, []*corev1.Po
 	teams := []string{"a", "b", "c"}
 	apps := []string{"web", "client", "worker", "cache"}
 
-	for n := 0; n < numNamespaces; n++ {
+	for n := range numNamespaces {
 		nsName := fmt.Sprintf("ns-%d", n)
 		namespaces = append(namespaces, namespace(nsName, map[string]string{"team": teams[r.Intn(len(teams))]}))
-		for p := 0; p < podsPerNS; p++ {
+		for p := range podsPerNS {
 			labels := map[string]string{"app": apps[r.Intn(len(apps))]}
 			ip := fmt.Sprintf("10.%d.%d.%d", n, p/256, p%256)
 			pods = append(pods, pod(nsName, fmt.Sprintf("pod-%d", p), ip, labels))
@@ -39,7 +39,7 @@ func buildRandomFixture(seed int64) ([]*networkingv1.NetworkPolicy, []*corev1.Po
 	}
 
 	var policies []*networkingv1.NetworkPolicy
-	for i := 0; i < numPolicies; i++ {
+	for i := range numPolicies {
 		nsName := fmt.Sprintf("ns-%d", r.Intn(numNamespaces))
 		selApp := apps[r.Intn(len(apps))]
 		peerApp := apps[r.Intn(len(apps))]

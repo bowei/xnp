@@ -3,7 +3,7 @@ package policy
 import (
 	"encoding/binary"
 	"hash/fnv"
-	"sort"
+	"slices"
 )
 
 // LabelSetID is an interned identity for a canonical label set: replicas
@@ -30,7 +30,7 @@ func internSet(labels map[string]string, tbl *symbolTable) internedLabelSet {
 		kvMap[key] = val
 		sorted = append(sorted, kv(key, val))
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	return internedLabelSet{kv: kvMap, sorted: sorted}
 }
 

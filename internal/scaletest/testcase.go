@@ -129,7 +129,7 @@ func Generate(cfg Config) (*TestCase, error) {
 	// and nodes independently, so the two dimensions vary orthogonally
 	// (e.g. Nodes=100/Namespaces=100 doesn't just give one namespace per
 	// node).
-	for i := 0; i < totalPods; i++ {
+	for i := range totalPods {
 		ns := tc.Namespaces[i%cfg.Namespaces]
 		node := fmt.Sprintf("node-%d", i%cfg.Nodes)
 		tc.Pods = append(tc.Pods, genPod(ns.Name, node, i, ips.next(), cfg, rng))
