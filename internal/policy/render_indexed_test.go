@@ -26,17 +26,17 @@ func TestRenderIndexed_MatchesBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
-	assertTuples(t, got, want)
+	assertTuples(t, got.List(), want.List())
 }
 
 func TestRenderIndexed_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	tuples, err := RenderIndexed(in)
+	store, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
-	if len(tuples) != 0 {
-		t.Fatalf("expected no tuples, got %+v", tuples)
+	if store.Len() != 0 {
+		t.Fatalf("expected no tuples, got %+v", store.List())
 	}
 }
 
@@ -123,7 +123,7 @@ func TestRenderIndexed_MatchExpressions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
-	assertTuples(t, got, want)
+	assertTuples(t, got.List(), want.List())
 }
 
 // TestRenderIndexed_ReplicatedLabelSets exercises the actual scenario
@@ -166,5 +166,5 @@ func TestRenderIndexed_ReplicatedLabelSets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
-	assertTuples(t, got, want)
+	assertTuples(t, got.List(), want.List())
 }

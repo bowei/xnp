@@ -68,10 +68,11 @@ func TestRender_UnisolatedPod(t *testing.T) {
 	pods := []*corev1.Pod{pod("ns", "a", "10.0.0.1", nil)}
 	in := mustInput(t, nil, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -92,10 +93,11 @@ func TestRender_IsolatedNoRules(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -117,10 +119,11 @@ func TestRender_EmptyFromAndPorts(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -157,10 +160,11 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	// Only the "web" pod is selected/isolated; others are unisolated.
@@ -203,10 +207,11 @@ func TestRender_NamespaceSelectorPeer(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, namespaces)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	var webTuples []tuple.Tuple
@@ -240,10 +245,11 @@ func TestRender_IPBlockPeer(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -272,10 +278,11 @@ func TestRender_PortRange(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -314,10 +321,11 @@ func TestRender_MultiplePoliciesUnioned(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{npA, npB}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	var webIngress []tuple.Tuple
@@ -352,10 +360,11 @@ func TestRender_DefaultPolicyTypes(t *testing.T) {
 	}
 	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic(in)
+	store, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	tuples := store.List()
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
@@ -401,7 +410,7 @@ func assertIndexedMatchesBasic(t *testing.T, in *Input, basic []tuple.Tuple) {
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
-	assertTuples(t, indexed, basic)
+	assertTuples(t, indexed.List(), basic)
 }
 
 func assertTuples(t *testing.T, got, want []tuple.Tuple) {

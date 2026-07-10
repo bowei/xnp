@@ -30,13 +30,13 @@ import (
 // though not necessarily in the same order.
 //
 // Tuple count per pod is knowable from its group template alone (ingress +
-// egress entry count × own-IP count), so this sizes the result slice exactly
-// once up front and writes into it directly, the same way
+// egress entry count × own-IP count), so this reserves the Store's backing
+// slice exactly once up front and writes into it directly, the same way
 // materializeTuplesParallel does for RenderIndexedParallel — as opposed to
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input) ([]tuple.Tuple, error) {
+func RenderIndexed(in *Input) (*tuple.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,8 @@ func RenderIndexed(in *Input) ([]tuple.Tuple, error) {
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	tuples := make([]tuple.Tuple, offsets[len(st.sortedPods)])
+	store := tuple.NewStore(offsets[len(st.sortedPods)])
+	tuples := store.Reserve(offsets[len(st.sortedPods)])
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
@@ -82,7 +83,7 @@ func RenderIndexed(in *Input) ([]tuple.Tuple, error) {
 		}
 	}
 
-	return tuples, nil
+	return store, nil
 }
 
 // groupKey identifies a (namespace, identity) group: every pod sharing a key

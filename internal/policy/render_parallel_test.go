@@ -85,19 +85,19 @@ func TestRenderParallel_MatchesBasic(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RenderParallel: %v", err)
 			}
-			assertTuples(t, got, want)
+			assertTuples(t, got.List(), want.List())
 		})
 	}
 }
 
 func TestRenderParallel_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	tuples, err := RenderParallel(in, 4)
+	store, err := RenderParallel(in, 4)
 	if err != nil {
 		t.Fatalf("RenderParallel: %v", err)
 	}
-	if len(tuples) != 0 {
-		t.Fatalf("expected no tuples, got %+v", tuples)
+	if store.Len() != 0 {
+		t.Fatalf("expected no tuples, got %+v", store.List())
 	}
 }
 

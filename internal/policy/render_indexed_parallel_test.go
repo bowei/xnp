@@ -30,7 +30,7 @@ func TestRenderIndexedParallel_MatchesBasic(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RenderIndexedParallel: %v", err)
 			}
-			assertTuples(t, got, want)
+			assertTuples(t, got.List(), want.List())
 		})
 	}
 }
@@ -78,19 +78,19 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RenderIndexedParallel: %v", err)
 			}
-			assertTuples(t, got, want)
+			assertTuples(t, got.List(), want.List())
 		})
 	}
 }
 
 func TestRenderIndexedParallel_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	tuples, err := RenderIndexedParallel(in, 4)
+	store, err := RenderIndexedParallel(in, 4)
 	if err != nil {
 		t.Fatalf("RenderIndexedParallel: %v", err)
 	}
-	if len(tuples) != 0 {
-		t.Fatalf("expected no tuples, got %+v", tuples)
+	if store.Len() != 0 {
+		t.Fatalf("expected no tuples, got %+v", store.List())
 	}
 }
 

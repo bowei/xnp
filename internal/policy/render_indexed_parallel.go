@@ -30,7 +30,7 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(in *Input, workers int) ([]tuple.Tuple, error) {
+func RenderIndexedParallel(in *Input, workers int) (*tuple.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -123,9 +123,9 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 // slice and a final pass concatenating all of them, which briefly doubles
 // peak memory (both copies of ~25M tuples live at once) and, at that size,
 // loses more to the resulting GC pressure than the parallel fan-out saves.
-func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) ([]tuple.Tuple, error) {
+func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) (*tuple.Store, error) {
 	if len(sortedPods) == 0 {
-		return nil, nil
+		return tuple.NewStore(0), nil
 	}
 	if workers > len(sortedPods) {
 		workers = len(sortedPods)
@@ -144,7 +144,8 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	tuples := make([]tuple.Tuple, offsets[len(sortedPods)])
+	store := tuple.NewStore(offsets[len(sortedPods)])
+	tuples := store.Reserve(offsets[len(sortedPods)])
 
 	var next atomic.Int64
 	var wg sync.WaitGroup
@@ -174,5 +175,5 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 	}
 	wg.Wait()
 
-	return tuples, nil
+	return store, nil
 }

@@ -34,10 +34,10 @@ type Report struct {
 }
 
 // Summarize computes a Report from an already-generated TestCase and the
-// Tuples policy.Render produced from it. It is a pure function of its
+// Store policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, tuples []tuple.Tuple, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
+func Summarize(tc *TestCase, store *tuple.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {
@@ -48,7 +48,7 @@ func Summarize(tc *TestCase, tuples []tuple.Tuple, genDur, convDur, renderDur ti
 
 	tuplesPerPod := make(map[types.NamespacedName]int, len(tc.Pods))
 	tuplesPerNode := make(map[string]int, len(nodes))
-	for _, t := range tuples {
+	for _, t := range store.List() {
 		tuplesPerPod[t.Pod]++
 		tuplesPerNode[nodeOf[t.Pod]]++
 	}
@@ -58,7 +58,7 @@ func Summarize(tc *TestCase, tuples []tuple.Tuple, genDur, convDur, renderDur ti
 		Nodes:            len(nodes),
 		Pods:             len(tc.Pods),
 		Policies:         len(tc.Policies),
-		Tuples:           len(tuples),
+		Tuples:           store.Len(),
 		GenerateDuration: genDur,
 		ConvertDuration:  convDur,
 		RenderDuration:   renderDur,

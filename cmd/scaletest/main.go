@@ -81,16 +81,16 @@ func renderCmd() *cobra.Command {
 			}
 
 			start = time.Now()
-			var tuples []tuple.Tuple
+			var store *tuple.Store
 			switch renderer {
 			case "parallel":
-				tuples, err = policy.RenderParallel(in, workers)
+				store, err = policy.RenderParallel(in, workers)
 			case "indexed":
-				tuples, err = policy.RenderIndexed(in)
+				store, err = policy.RenderIndexed(in)
 			case "indexed-parallel":
-				tuples, err = policy.RenderIndexedParallel(in, workers)
+				store, err = policy.RenderIndexedParallel(in, workers)
 			default:
-				tuples, err = policy.RenderBasic(in)
+				store, err = policy.RenderBasic(in)
 			}
 			renderDur := time.Since(start)
 			mem := stopMem()
@@ -98,7 +98,7 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			report := scaletest.Summarize(tc, tuples, genDur, convDur, renderDur, mem)
+			report := scaletest.Summarize(tc, store, genDur, convDur, renderDur, mem)
 			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
 				return err
 			}
