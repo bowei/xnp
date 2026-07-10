@@ -27,6 +27,63 @@ import (
 // tests in render_indexed_test.go and the cross-checks in render_test.go),
 // though not necessarily in the same order.
 func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) ([]Tuple, error) {
+	st, err := prepareIndexedRender(policies, pods, namespaces)
+	if err != nil {
+		return nil, err
+	}
+
+	groupCache := map[groupKey]*groupTemplates{}
+
+	var tuples []Tuple
+	for i, pod := range st.sortedPods {
+		key := groupKey{pod.Namespace, st.podIdentity[i]}
+		tmpl, ok := groupCache[key]
+		if !ok {
+			tmpl, err = st.groupTemplatesFor(key)
+			if err != nil {
+				return nil, fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
+			}
+			groupCache[key] = tmpl
+		}
+
+		podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+		ownIPs := podIPs(pod)
+		for _, tt := range tmpl.ingress {
+			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, tt.verdict, tt.peer, tt.port)...)
+		}
+		for _, tt := range tmpl.egress {
+			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionEgress, tt.verdict, tt.peer, tt.port)...)
+		}
+	}
+
+	return tuples, nil
+}
+
+// groupKey identifies a (namespace, identity) group: every pod sharing a key
+// resolves to the same ingress/egress templates.
+type groupKey struct {
+	ns string
+	id LabelSetID
+}
+
+// indexedState holds every structure RenderIndexed builds once up front —
+// the compiled selector registry, the inverted index's per-identity match
+// bitmaps, and the namespace/identity pod buckets — so it can be shared
+// between RenderIndexed and RenderIndexedParallel, which differ only in how
+// they walk groups and pods once this state exists.
+type indexedState struct {
+	sortedPods          []*corev1.Pod
+	podIdentity         []LabelSetID
+	policiesByNamespace map[string][]*networkingv1.NetworkPolicy
+	policySelector      map[*networkingv1.NetworkPolicy]SelectorID
+	registry            *selectorRegistry
+	matchedByIdentity   []bitset
+	identitiesByNS      map[string][]LabelSetID
+	podsByNS            map[string]map[LabelSetID][]*corev1.Pod
+	nsIndex             *namespaceSelectorCache
+}
+
+func prepareIndexedRender(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) (*indexedState, error) {
 	sortedPods, _, policiesByNamespace := prepareRender(policies, pods)
 
 	tbl := newSymbolTable()
@@ -80,35 +137,21 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 
 	nsIndex := newNamespaceSelectorCache(namespaces, tbl)
 
-	type groupKey struct {
-		ns string
-		id LabelSetID
-	}
-	groupCache := map[groupKey]*groupTemplates{}
+	return &indexedState{
+		sortedPods:          sortedPods,
+		podIdentity:         podIdentity,
+		policiesByNamespace: policiesByNamespace,
+		policySelector:      policySelector,
+		registry:            registry,
+		matchedByIdentity:   matchedByIdentity,
+		identitiesByNS:      identitiesByNS,
+		podsByNS:            podsByNS,
+		nsIndex:             nsIndex,
+	}, nil
+}
 
-	var tuples []Tuple
-	for i, pod := range sortedPods {
-		key := groupKey{pod.Namespace, podIdentity[i]}
-		tmpl, ok := groupCache[key]
-		if !ok {
-			tmpl, err = computeGroupTemplates(matchedByIdentity[podIdentity[i]], policiesByNamespace[pod.Namespace], policySelector, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
-			if err != nil {
-				return nil, fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
-			}
-			groupCache[key] = tmpl
-		}
-
-		podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
-		ownIPs := podIPs(pod)
-		for _, tt := range tmpl.ingress {
-			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, tt.verdict, tt.peer, tt.port)...)
-		}
-		for _, tt := range tmpl.egress {
-			tuples = append(tuples, makeTuples(podName, ownIPs, DirectionEgress, tt.verdict, tt.peer, tt.port)...)
-		}
-	}
-
-	return tuples, nil
+func (st *indexedState) groupTemplatesFor(key groupKey) (*groupTemplates, error) {
+	return computeGroupTemplates(st.matchedByIdentity[key.id], st.policiesByNamespace[key.ns], st.policySelector, st.registry, st.matchedByIdentity, st.identitiesByNS, st.podsByNS, st.nsIndex)
 }
 
 // registerAllSelectors pre-compiles every PodSelector referenced by

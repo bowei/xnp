@@ -2,6 +2,7 @@ package policy
 
 import (
 	"sort"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,11 +138,17 @@ func (idx *invertedIndex) match(ls internedLabelSet) []SelectorID {
 // so an identical NamespaceSelector reused across many rules — common both
 // in generated and real-world policy sets — is only evaluated once (doc
 // "Label optimizations" #5 and #6).
+// namespaceSelectorCache's match cache is lazily populated and shared across
+// every group RenderIndexed(Parallel) resolves, so concurrent callers (from
+// RenderIndexedParallel's group-template workers) need mu to guard reads and
+// writes; RenderIndexed's single-threaded loop pays its uncontended cost.
 type namespaceSelectorCache struct {
 	tbl        *symbolTable
 	namespaces []internedLabelSet
 	names      []string
-	cache      map[string][]string
+
+	mu    sync.RWMutex
+	cache map[string][]string
 }
 
 func newNamespaceSelectorCache(namespaces []*corev1.Namespace, tbl *symbolTable) *namespaceSelectorCache {
@@ -155,9 +162,14 @@ func newNamespaceSelectorCache(namespaces []*corev1.Namespace, tbl *symbolTable)
 
 func (c *namespaceSelectorCache) match(sel metav1.LabelSelector) ([]string, error) {
 	key := canonicalKey(sel)
-	if names, ok := c.cache[key]; ok {
+
+	c.mu.RLock()
+	names, ok := c.cache[key]
+	c.mu.RUnlock()
+	if ok {
 		return names, nil
 	}
+
 	cs, err := compileSelector(sel, c.tbl)
 	if err != nil {
 		return nil, err
@@ -169,6 +181,9 @@ func (c *namespaceSelectorCache) match(sel metav1.LabelSelector) ([]string, erro
 		}
 	}
 	sort.Strings(matched)
+
+	c.mu.Lock()
 	c.cache[key] = matched
+	c.mu.Unlock()
 	return matched, nil
 }
