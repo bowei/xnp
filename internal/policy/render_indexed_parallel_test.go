@@ -17,15 +17,16 @@ import (
 // results slot in either of RenderIndexedParallel's two fan-out phases.
 func TestRenderIndexedParallel_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
 
 	for _, workers := range []int{0, 1, 2, 3, 8, 64} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderIndexedParallel(policies, pods, namespaces, workers)
+			got, err := RenderIndexedParallel(in, workers)
 			if err != nil {
 				t.Fatalf("RenderIndexedParallel: %v", err)
 			}
@@ -64,15 +65,16 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 		},
 	}
 	policies := []*networkingv1.NetworkPolicy{np}
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
 
 	for _, workers := range []int{0, 1, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderIndexedParallel(policies, pods, namespaces, workers)
+			got, err := RenderIndexedParallel(in, workers)
 			if err != nil {
 				t.Fatalf("RenderIndexedParallel: %v", err)
 			}
@@ -82,7 +84,8 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 }
 
 func TestRenderIndexedParallel_Empty(t *testing.T) {
-	tuples, err := RenderIndexedParallel(nil, nil, nil, 4)
+	in := mustInput(t, nil, nil, nil)
+	tuples, err := RenderIndexedParallel(in, 4)
 	if err != nil {
 		t.Fatalf("RenderIndexedParallel: %v", err)
 	}
@@ -104,7 +107,7 @@ func TestRenderIndexedParallel_NamedPortUnsupported(t *testing.T) {
 		},
 	}
 
-	if _, err := RenderIndexedParallel([]*networkingv1.NetworkPolicy{np}, pods, nil, 4); err == nil {
-		t.Fatal("RenderIndexedParallel: expected error for named port, got nil")
+	if _, err := NewInput([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+		t.Fatal("NewInput: expected error for named port, got nil")
 	}
 }

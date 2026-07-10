@@ -16,12 +16,13 @@ import (
 // machinery (e.g. a stale SelectorID, a missed namespace bucket).
 func TestRenderIndexed_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
-	got, err := RenderIndexed(policies, pods, namespaces)
+	got, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
@@ -29,7 +30,8 @@ func TestRenderIndexed_MatchesBasic(t *testing.T) {
 }
 
 func TestRenderIndexed_Empty(t *testing.T) {
-	tuples, err := RenderIndexed(nil, nil, nil)
+	in := mustInput(t, nil, nil, nil)
+	tuples, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
@@ -51,8 +53,8 @@ func TestRenderIndexed_NamedPortUnsupported(t *testing.T) {
 		},
 	}
 
-	if _, err := RenderIndexed([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
-		t.Fatal("RenderIndexed: expected error for named port, got nil")
+	if _, err := NewInput([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+		t.Fatal("NewInput: expected error for named port, got nil")
 	}
 }
 
@@ -111,12 +113,13 @@ func buildExpressionFixture() ([]*networkingv1.NetworkPolicy, []*corev1.Pod, []*
 
 func TestRenderIndexed_MatchExpressions(t *testing.T) {
 	policies, pods, namespaces := buildExpressionFixture()
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
-	got, err := RenderIndexed(policies, pods, namespaces)
+	got, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}
@@ -153,12 +156,13 @@ func TestRenderIndexed_ReplicatedLabelSets(t *testing.T) {
 		},
 	}
 	policies := []*networkingv1.NetworkPolicy{np}
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
-	got, err := RenderIndexed(policies, pods, namespaces)
+	got, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}

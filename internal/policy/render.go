@@ -11,8 +11,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/bowei/xnp/internal/repr"
 )
 
 // Direction is the traffic direction a Tuple applies to.
@@ -66,78 +68,107 @@ type portEntry struct {
 	wildcard bool
 }
 
+// protocolToK8s converts repr's packed Protocol back to the string form
+// Tuple carries, at the render output boundary.
+func protocolToK8s(p repr.Protocol) corev1.Protocol {
+	switch p {
+	case repr.ProtocolUDP:
+		return corev1.ProtocolUDP
+	case repr.ProtocolSCTP:
+		return corev1.ProtocolSCTP
+	default:
+		return corev1.ProtocolTCP
+	}
+}
+
+// podIPStrings renders pod's interned IPs back to text form once per pod, so
+// per-tuple materialization (writeTuples) never re-stringifies the same
+// address.
+func podIPStrings(pod repr.Pod) []string {
+	if len(pod.IPs) == 0 {
+		return nil
+	}
+	ips := make([]string, len(pod.IPs))
+	for i, addr := range pod.IPs {
+		ips[i] = addr.String()
+	}
+	return ips
+}
+
 // prepareRender sorts pods into a deterministic order and buckets both pods
 // and policies by namespace, ready for per-pod rendering. Shared by
 // RenderBasic and RenderParallel so their inputs and pod ordering can't
-// drift apart.
-func prepareRender(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod) (sortedPods []*corev1.Pod, podsByNamespace map[string][]*corev1.Pod, policiesByNamespace map[string][]*networkingv1.NetworkPolicy) {
-	sortedPods = append([]*corev1.Pod(nil), pods...)
+// drift apart. Policies are bucketed by index into in.Policies rather than
+// copied, so policy identity (used by the indexed renderers to key
+// SelectorIDs) stays stable.
+func prepareRender(in *Input) (sortedPods []repr.Pod, podsByNamespace map[repr.StringID][]repr.Pod, policiesByNamespace map[repr.StringID][]int) {
+	sortedPods = append([]repr.Pod(nil), in.Pods...)
 	sort.Slice(sortedPods, func(i, j int) bool {
-		if sortedPods[i].Namespace != sortedPods[j].Namespace {
-			return sortedPods[i].Namespace < sortedPods[j].Namespace
+		pi, pj := sortedPods[i], sortedPods[j]
+		if pi.Namespace != pj.Namespace {
+			return in.Table.String(pi.Namespace) < in.Table.String(pj.Namespace)
 		}
-		return sortedPods[i].Name < sortedPods[j].Name
+		return pi.Name < pj.Name
 	})
 
-	podsByNamespace = map[string][]*corev1.Pod{}
+	podsByNamespace = map[repr.StringID][]repr.Pod{}
 	for _, p := range sortedPods {
 		podsByNamespace[p.Namespace] = append(podsByNamespace[p.Namespace], p)
 	}
 
-	policiesByNamespace = map[string][]*networkingv1.NetworkPolicy{}
-	for _, np := range policies {
-		policiesByNamespace[np.Namespace] = append(policiesByNamespace[np.Namespace], np)
+	policiesByNamespace = map[repr.StringID][]int{}
+	for i, np := range in.Policies {
+		policiesByNamespace[np.Namespace] = append(policiesByNamespace[np.Namespace], i)
 	}
 	for ns := range policiesByNamespace {
-		nps := policiesByNamespace[ns]
-		sort.Slice(nps, func(i, j int) bool { return nps[i].Name < nps[j].Name })
+		idxs := policiesByNamespace[ns]
+		sort.Slice(idxs, func(i, j int) bool { return in.Policies[idxs[i]].Name < in.Policies[idxs[j]].Name })
 	}
 
 	return sortedPods, podsByNamespace, policiesByNamespace
 }
 
 // renderPod computes the full ingress+egress rule chain for a single pod.
-func renderPod(pod *corev1.Pod, nsPolicies []*networkingv1.NetworkPolicy, podsByNamespace map[string][]*corev1.Pod, namespaces []*corev1.Namespace) ([]Tuple, error) {
-	var selecting []*networkingv1.NetworkPolicy
-	for _, np := range nsPolicies {
-		ok, err := matchesLabelSelector(np.Spec.PodSelector, pod.Labels)
+func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[repr.StringID][]repr.Pod) ([]Tuple, error) {
+	var selecting []int
+	for _, idx := range nsPolicyIdx {
+		np := in.Policies[idx]
+		cs, err := repr.CompileSelector(np.PodSelector, in.Table)
 		if err != nil {
 			return nil, fmt.Errorf("policy %s: %w", np.Name, err)
 		}
-		if ok {
-			selecting = append(selecting, np)
+		if cs.Matches(pod.Labels) {
+			selecting = append(selecting, idx)
 		}
 	}
 
-	var ingressPolicies, egressPolicies []*networkingv1.NetworkPolicy
-	for _, np := range selecting {
-		ingress, egress := effectivePolicyTypes(np)
+	var ingressIdx, egressIdx []int
+	for _, idx := range selecting {
+		ingress, egress := effectivePolicyTypes(in.Policies[idx])
 		if ingress {
-			ingressPolicies = append(ingressPolicies, np)
+			ingressIdx = append(ingressIdx, idx)
 		}
 		if egress {
-			egressPolicies = append(egressPolicies, np)
+			egressIdx = append(egressIdx, idx)
 		}
 	}
 
-	podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
-	ownIPs := podIPs(pod)
+	podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
+	ownIPs := podIPStrings(pod)
 
 	var tuples []Tuple
 
-	if len(ingressPolicies) == 0 {
+	if len(ingressIdx) == 0 {
 		tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
 	} else {
-		for _, np := range ingressPolicies {
-			for _, rule := range np.Spec.Ingress {
-				peers, err := resolvePeers(rule.From, np.Namespace, podsByNamespace, namespaces)
+		for _, idx := range ingressIdx {
+			np := in.Policies[idx]
+			for _, rule := range np.Ingress {
+				peers, err := resolvePeers(rule.Peers, np.Namespace, podsByNamespace, in.Namespaces, in.Table)
 				if err != nil {
 					return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
 				}
-				ports, err := resolvePorts(rule.Ports)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
-				}
+				ports := resolvePorts(rule.Ports)
 				for _, peer := range peers {
 					for _, port := range ports {
 						tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, VerdictAllow, peer, port)...)
@@ -148,19 +179,17 @@ func renderPod(pod *corev1.Pod, nsPolicies []*networkingv1.NetworkPolicy, podsBy
 		tuples = append(tuples, makeTuples(podName, ownIPs, DirectionIngress, VerdictDeny, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
 	}
 
-	if len(egressPolicies) == 0 {
+	if len(egressIdx) == 0 {
 		tuples = append(tuples, makeTuples(podName, ownIPs, DirectionEgress, VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
 	} else {
-		for _, np := range egressPolicies {
-			for _, rule := range np.Spec.Egress {
-				peers, err := resolvePeers(rule.To, np.Namespace, podsByNamespace, namespaces)
+		for _, idx := range egressIdx {
+			np := in.Policies[idx]
+			for _, rule := range np.Egress {
+				peers, err := resolvePeers(rule.Peers, np.Namespace, podsByNamespace, in.Namespaces, in.Table)
 				if err != nil {
 					return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
 				}
-				ports, err := resolvePorts(rule.Ports)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
-				}
+				ports := resolvePorts(rule.Ports)
 				for _, peer := range peers {
 					for _, port := range ports {
 						tuples = append(tuples, makeTuples(podName, ownIPs, DirectionEgress, VerdictAllow, peer, port)...)
@@ -174,13 +203,13 @@ func renderPod(pod *corev1.Pod, nsPolicies []*networkingv1.NetworkPolicy, podsBy
 	return tuples, nil
 }
 
-// effectivePolicyTypes resolves np.Spec.PolicyTypes' defaulting behavior:
-// Ingress is always assumed unless PolicyTypes is explicitly set and omits
-// it; Egress is only assumed (when PolicyTypes is unset) if the policy has
+// effectivePolicyTypes resolves np.PolicyTypes' defaulting behavior: Ingress
+// is always assumed unless PolicyTypes is explicitly set and omits it;
+// Egress is only assumed (when PolicyTypes is unset) if the policy has
 // Egress rules.
-func effectivePolicyTypes(np *networkingv1.NetworkPolicy) (ingress, egress bool) {
-	if len(np.Spec.PolicyTypes) > 0 {
-		for _, t := range np.Spec.PolicyTypes {
+func effectivePolicyTypes(np repr.NetworkPolicy) (ingress, egress bool) {
+	if len(np.PolicyTypes) > 0 {
+		for _, t := range np.PolicyTypes {
 			switch t {
 			case networkingv1.PolicyTypeIngress:
 				ingress = true
@@ -190,15 +219,15 @@ func effectivePolicyTypes(np *networkingv1.NetworkPolicy) (ingress, egress bool)
 		}
 		return ingress, egress
 	}
-	return true, len(np.Spec.Egress) > 0
+	return true, len(np.Egress) > 0
 }
 
-// resolvePeers expands a NetworkPolicyPeer list into concrete peer entries.
-// An empty list means the rule applies to any peer.
+// resolvePeers expands a repr.Peer list into concrete peer entries. An empty
+// list means the rule applies to any peer.
 //
 // Known simplification: IPBlock.Except sub-ranges are not carved out of the
 // CIDR in this baseline renderer.
-func resolvePeers(peers []networkingv1.NetworkPolicyPeer, policyNamespace string, podsByNamespace map[string][]*corev1.Pod, namespaces []*corev1.Namespace) ([]peerEntry, error) {
+func resolvePeers(peers []repr.Peer, policyNamespace repr.StringID, podsByNamespace map[repr.StringID][]repr.Pod, namespaces []repr.Namespace, tbl *repr.SymbolTable) ([]peerEntry, error) {
 	if len(peers) == 0 {
 		return []peerEntry{{wildcard: true}}, nil
 	}
@@ -206,32 +235,32 @@ func resolvePeers(peers []networkingv1.NetworkPolicyPeer, policyNamespace string
 	var entries []peerEntry
 	for _, peer := range peers {
 		if peer.IPBlock != nil {
-			entries = append(entries, peerEntry{addr: peer.IPBlock.CIDR})
+			entries = append(entries, peerEntry{addr: peer.IPBlock.CIDR.String()})
 			continue
 		}
 
-		nsNames := []string{policyNamespace}
+		nsIDs := []repr.StringID{policyNamespace}
 		if peer.NamespaceSelector != nil {
-			names, err := matchingNamespaces(peer.NamespaceSelector, namespaces)
+			ids, err := matchingNamespaces(*peer.NamespaceSelector, namespaces, tbl)
 			if err != nil {
 				return nil, err
 			}
-			nsNames = names
+			nsIDs = ids
 		}
 
-		for _, ns := range nsNames {
+		for _, ns := range nsIDs {
 			for _, pod := range podsByNamespace[ns] {
 				if peer.PodSelector != nil {
-					ok, err := matchesLabelSelector(*peer.PodSelector, pod.Labels)
+					cs, err := repr.CompileSelector(*peer.PodSelector, tbl)
 					if err != nil {
 						return nil, err
 					}
-					if !ok {
+					if !cs.Matches(pod.Labels) {
 						continue
 					}
 				}
-				for _, ip := range podIPs(pod) {
-					entries = append(entries, peerEntry{addr: ip})
+				for _, ip := range pod.IPs {
+					entries = append(entries, peerEntry{addr: ip.String()})
 				}
 			}
 		}
@@ -239,36 +268,37 @@ func resolvePeers(peers []networkingv1.NetworkPolicyPeer, policyNamespace string
 	return entries, nil
 }
 
-// resolvePorts expands a NetworkPolicyPort list into concrete port entries.
-// An empty list means the rule applies to any port/protocol.
-//
-// Known simplification: named (string) ports are not supported, since
-// resolving them requires per-peer-pod container port lookups; such
-// policies produce an error rather than a silently wrong tuple.
-func resolvePorts(ports []networkingv1.NetworkPolicyPort) ([]portEntry, error) {
+// matchingNamespaces returns the interned names of every namespace selected
+// by sel, sorted by name for determinism.
+func matchingNamespaces(sel metav1.LabelSelector, namespaces []repr.Namespace, tbl *repr.SymbolTable) ([]repr.StringID, error) {
+	cs, err := repr.CompileSelector(sel, tbl)
+	if err != nil {
+		return nil, err
+	}
+	var ids []repr.StringID
+	for _, ns := range namespaces {
+		if cs.Matches(ns.Labels) {
+			ids = append(ids, ns.Name)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return tbl.String(ids[i]) < tbl.String(ids[j]) })
+	return ids, nil
+}
+
+// resolvePorts expands a repr.Port list into concrete port entries. An empty
+// list means the rule applies to any port/protocol. Unlike the pre-repr
+// baseline, this can no longer fail: named (string) ports are rejected at
+// conversion time (NewInput), not here.
+func resolvePorts(ports []repr.Port) []portEntry {
 	if len(ports) == 0 {
-		return []portEntry{{wildcard: true}}, nil
+		return []portEntry{{wildcard: true}}
 	}
 
-	entries := make([]portEntry, 0, len(ports))
-	for _, p := range ports {
-		proto := corev1.ProtocolTCP
-		if p.Protocol != nil {
-			proto = *p.Protocol
-		}
-
-		var port *int32
-		if p.Port != nil {
-			if p.Port.Type == intstr.String {
-				return nil, fmt.Errorf("named ports are not supported in this baseline renderer: %q", p.Port.StrVal)
-			}
-			v := p.Port.IntVal
-			port = &v
-		}
-
-		entries = append(entries, portEntry{protocol: proto, port: port, endPort: p.EndPort})
+	entries := make([]portEntry, len(ports))
+	for i, p := range ports {
+		entries[i] = portEntry{protocol: protocolToK8s(p.Protocol), port: p.Port, endPort: p.EndPort}
 	}
-	return entries, nil
+	return entries
 }
 
 // makeTuples materializes one Tuple per own-IP of the enforcing pod (a pod

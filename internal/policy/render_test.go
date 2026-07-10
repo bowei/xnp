@@ -22,6 +22,17 @@ func namespace(name string, labels map[string]string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
 }
 
+// mustInput runs Phase 1 (NewInput) for a test fixture, failing the test on
+// conversion error so every Render* call site doesn't have to.
+func mustInput(t *testing.T, policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) *Input {
+	t.Helper()
+	in, err := NewInput(policies, pods, namespaces)
+	if err != nil {
+		t.Fatalf("NewInput: %v", err)
+	}
+	return in
+}
+
 //go:fix inline
 func int32p(v int32) *int32 { return new(v) }
 
@@ -53,12 +64,13 @@ func sortTuples(tuples []Tuple) []Tuple {
 
 func TestRender_UnisolatedPod(t *testing.T) {
 	pods := []*corev1.Pod{pod("ns", "a", "10.0.0.1", nil)}
+	in := mustInput(t, nil, pods, nil)
 
-	tuples, err := RenderBasic(nil, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, nil, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -76,12 +88,13 @@ func TestRender_IsolatedNoRules(t *testing.T) {
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
@@ -100,12 +113,13 @@ func TestRender_EmptyFromAndPorts(t *testing.T) {
 			Ingress:     []networkingv1.NetworkPolicyIngressRule{{}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -139,12 +153,13 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	// Only the "web" pod is selected/isolated; others are unisolated.
 	var webTuples []Tuple
@@ -184,12 +199,13 @@ func TestRender_NamespaceSelectorPeer(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, namespaces)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, namespaces)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, namespaces, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	var webTuples []Tuple
 	for _, tup := range tuples {
@@ -220,12 +236,13 @@ func TestRender_IPBlockPeer(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "192.168.0.0/16", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -251,12 +268,13 @@ func TestRender_PortRange(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: int32p(8000), EndPort: int32p(8080), Protocol: corev1.ProtocolTCP, Direction: DirectionIngress, Verdict: VerdictAllow},
@@ -292,12 +310,13 @@ func TestRender_MultiplePoliciesUnioned(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{npA, npB}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{npA, npB}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{npA, npB}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	var webIngress []Tuple
 	for _, tup := range tuples {
@@ -329,12 +348,13 @@ func TestRender_DefaultPolicyTypes(t *testing.T) {
 			}},
 		},
 	}
+	in := mustInput(t, []*networkingv1.NetworkPolicy{np}, pods, nil)
 
-	tuples, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil)
+	tuples, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	assertIndexedMatchesBasic(t, []*networkingv1.NetworkPolicy{np}, pods, nil, tuples)
+	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []Tuple{
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
@@ -357,11 +377,10 @@ func TestRender_NamedPortUnsupported(t *testing.T) {
 		},
 	}
 
-	if _, err := RenderBasic([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
-		t.Fatal("Render: expected error for named port, got nil")
-	}
-	if _, err := RenderIndexed([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
-		t.Fatal("RenderIndexed: expected error for named port, got nil")
+	// Named ports are now rejected at conversion time (NewInput), before any
+	// renderer sees the input.
+	if _, err := NewInput([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+		t.Fatal("NewInput: expected error for named port, got nil")
 	}
 }
 
@@ -374,9 +393,9 @@ func nsName(namespace, name string) types.NamespacedName {
 // exercised against the same edge cases (unisolated pods, IPBlocks, port
 // ranges, PolicyTypes defaulting, namespaceSelector peers, ...) without
 // duplicating each test's fixture.
-func assertIndexedMatchesBasic(t *testing.T, policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace, basic []Tuple) {
+func assertIndexedMatchesBasic(t *testing.T, in *Input, basic []Tuple) {
 	t.Helper()
-	indexed, err := RenderIndexed(policies, pods, namespaces)
+	indexed, err := RenderIndexed(in)
 	if err != nil {
 		t.Fatalf("RenderIndexed: %v", err)
 	}

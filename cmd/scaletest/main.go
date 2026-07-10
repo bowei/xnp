@@ -72,16 +72,24 @@ func renderCmd() *cobra.Command {
 			}
 
 			start = time.Now()
+			in, err := policy.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
+			convDur := time.Since(start)
+			if err != nil {
+				stopMem()
+				return fmt.Errorf("convert: %w", err)
+			}
+
+			start = time.Now()
 			var tuples []policy.Tuple
 			switch renderer {
 			case "parallel":
-				tuples, err = policy.RenderParallel(tc.Policies, tc.Pods, tc.Namespaces, workers)
+				tuples, err = policy.RenderParallel(in, workers)
 			case "indexed":
-				tuples, err = policy.RenderIndexed(tc.Policies, tc.Pods, tc.Namespaces)
+				tuples, err = policy.RenderIndexed(in)
 			case "indexed-parallel":
-				tuples, err = policy.RenderIndexedParallel(tc.Policies, tc.Pods, tc.Namespaces, workers)
+				tuples, err = policy.RenderIndexedParallel(in, workers)
 			default:
-				tuples, err = policy.RenderBasic(tc.Policies, tc.Pods, tc.Namespaces)
+				tuples, err = policy.RenderBasic(in)
 			}
 			renderDur := time.Since(start)
 			mem := stopMem()
@@ -89,7 +97,7 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			report := scaletest.Summarize(tc, tuples, genDur, renderDur, mem)
+			report := scaletest.Summarize(tc, tuples, genDur, convDur, renderDur, mem)
 			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
 				return err
 			}

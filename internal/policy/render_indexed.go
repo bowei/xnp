@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"slices"
 
-	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/bowei/xnp/internal/repr"
 )
 
 // RenderIndexed is equivalent to RenderBasic but avoids brute-force
 // selector×pod evaluation, per the "Label optimizations" in
-// doc/optimizations.md:
+// doc/optimizations.md, using repr's matching-layer types (repr.LabelSet,
+// repr.CompiledSelector, repr.InvertedIndex, repr.Bitset, ...):
 //
 //   - Pods are canonicalized into small-integer label-set identities (#1);
 //     selector evaluation runs once per (namespace, identity) group and is
@@ -34,8 +35,8 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) ([]Tuple, error) {
-	st, err := prepareIndexedRender(policies, pods, namespaces)
+func RenderIndexed(in *Input) ([]Tuple, error) {
+	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
 	}
@@ -51,13 +52,13 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 		if !ok {
 			tmpl, err = st.groupTemplatesFor(key)
 			if err != nil {
-				return nil, fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
+				return nil, fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			groupCache[key] = tmpl
 		}
 		templates[i] = tmpl
 
-		ips := podIPs(pod)
+		ips := podIPStrings(pod)
 		ownIPs[i] = ips
 		n := len(ips)
 		if n == 0 {
@@ -69,7 +70,7 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 	tuples := make([]Tuple, offsets[len(st.sortedPods)])
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
-		podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
 		dst := tuples[offsets[i]:offsets[i+1]]
 		n := 0
 		for _, tt := range tmpl.ingress {
@@ -86,8 +87,8 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 // groupKey identifies a (namespace, identity) group: every pod sharing a key
 // resolves to the same ingress/egress templates.
 type groupKey struct {
-	ns string
-	id LabelSetID
+	ns repr.StringID
+	id repr.LabelSetID
 }
 
 // indexedState holds every structure RenderIndexed builds once up front —
@@ -96,49 +97,49 @@ type groupKey struct {
 // between RenderIndexed and RenderIndexedParallel, which differ only in how
 // they walk groups and pods once this state exists.
 type indexedState struct {
-	sortedPods          []*corev1.Pod
-	podIdentity         []LabelSetID
-	policiesByNamespace map[string][]*networkingv1.NetworkPolicy
-	policySelector      map[*networkingv1.NetworkPolicy]SelectorID
-	registry            *selectorRegistry
-	matchedByIdentity   []bitset
-	identitiesByNS      map[string][]LabelSetID
-	podsByNS            map[string]map[LabelSetID][]*corev1.Pod
-	nsIndex             *namespaceSelectorCache
+	in                  *Input
+	sortedPods          []repr.Pod
+	podIdentity         []repr.LabelSetID
+	policiesByNamespace map[repr.StringID][]int
+	policySelector      []repr.SelectorID // indexed by position in in.Policies
+	registry            *repr.SelectorRegistry
+	matchedByIdentity   []repr.Bitset
+	identitiesByNS      map[repr.StringID][]repr.LabelSetID
+	podsByNS            map[repr.StringID]map[repr.LabelSetID][]repr.Pod
+	nsIndex             *repr.NamespaceSelectorCache
 }
 
-func prepareIndexedRender(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace) (*indexedState, error) {
-	sortedPods, _, policiesByNamespace := prepareRender(policies, pods)
+func prepareIndexedRender(in *Input) (*indexedState, error) {
+	sortedPods, _, policiesByNamespace := prepareRender(in)
 
-	tbl := newSymbolTable()
-	registry := newSelectorRegistry(tbl)
+	registry := repr.NewSelectorRegistry(in.Table)
 
 	// Register every PodSelector (policy-level and peer-level) up front, so
 	// the inverted index and the per-identity match bitmaps below are
 	// computed exactly once, covering every selector that will ever be
 	// probed during rendering.
-	policySelector, err := registerAllSelectors(policies, registry)
+	policySelector, err := registerAllSelectors(in.Policies, registry)
 	if err != nil {
 		return nil, err
 	}
-	index := buildInvertedIndex(registry.compiled)
+	index := repr.BuildInvertedIndex(registry.All())
 
-	identities := newIdentityAllocator()
-	podIdentity := make([]LabelSetID, len(sortedPods))
-	podsByNS := map[string]map[LabelSetID][]*corev1.Pod{}
+	identities := repr.NewIdentityAllocator()
+	podIdentity := make([]repr.LabelSetID, len(sortedPods))
+	podsByNS := map[repr.StringID]map[repr.LabelSetID][]repr.Pod{}
 	for i, pod := range sortedPods {
-		id := identities.intern(pod.Labels, tbl)
+		id := identities.Intern(pod.Labels)
 		podIdentity[i] = id
 		byID := podsByNS[pod.Namespace]
 		if byID == nil {
-			byID = map[LabelSetID][]*corev1.Pod{}
+			byID = map[repr.LabelSetID][]repr.Pod{}
 			podsByNS[pod.Namespace] = byID
 		}
 		byID[id] = append(byID[id], pod)
 	}
-	identitiesByNS := map[string][]LabelSetID{}
+	identitiesByNS := map[repr.StringID][]repr.LabelSetID{}
 	for ns, byID := range podsByNS {
-		ids := make([]LabelSetID, 0, len(byID))
+		ids := make([]repr.LabelSetID, 0, len(byID))
 		for id := range byID {
 			ids = append(ids, id)
 		}
@@ -150,18 +151,19 @@ func prepareIndexedRender(policies []*networkingv1.NetworkPolicy, pods []*corev1
 	// label set, not once per pod. For a cluster where replicas dominate
 	// (e.g. 5,000 pods / 200 distinct label sets), that's a ~25x cut in
 	// selector evaluations before a single Tuple is produced.
-	matchedByIdentity := make([]bitset, len(identities.sets))
-	for id := range identities.sets {
-		bs := newBitset(len(registry.compiled))
-		for _, sid := range index.match(identities.get(LabelSetID(id))) {
-			bs.set(uint32(sid))
+	matchedByIdentity := make([]repr.Bitset, identities.Len())
+	for id := 0; id < identities.Len(); id++ {
+		bs := repr.NewBitset(len(registry.All()))
+		for _, sid := range index.Match(identities.Get(repr.LabelSetID(id))) {
+			bs.Set(uint32(sid))
 		}
 		matchedByIdentity[id] = bs
 	}
 
-	nsIndex := newNamespaceSelectorCache(namespaces, tbl)
+	nsIndex := repr.NewNamespaceSelectorCache(in.Namespaces, in.Table)
 
 	return &indexedState{
+		in:                  in,
 		sortedPods:          sortedPods,
 		podIdentity:         podIdentity,
 		policiesByNamespace: policiesByNamespace,
@@ -175,29 +177,30 @@ func prepareIndexedRender(policies []*networkingv1.NetworkPolicy, pods []*corev1
 }
 
 func (st *indexedState) groupTemplatesFor(key groupKey) (*groupTemplates, error) {
-	return computeGroupTemplates(st.matchedByIdentity[key.id], st.policiesByNamespace[key.ns], st.policySelector, st.registry, st.matchedByIdentity, st.identitiesByNS, st.podsByNS, st.nsIndex)
+	return computeGroupTemplates(st.in, st.matchedByIdentity[key.id], st.policiesByNamespace[key.ns], st.policySelector, st.registry, st.matchedByIdentity, st.identitiesByNS, st.podsByNS, st.nsIndex)
 }
 
 // registerAllSelectors pre-compiles every PodSelector referenced by
 // policies (both the policy-level selector and every peer's selector)
 // before the inverted index is built, so no selector is compiled or
 // assigned a new SelectorID after matchedByIdentity has been computed.
-func registerAllSelectors(policies []*networkingv1.NetworkPolicy, registry *selectorRegistry) (map[*networkingv1.NetworkPolicy]SelectorID, error) {
-	policySelector := make(map[*networkingv1.NetworkPolicy]SelectorID, len(policies))
-	for _, np := range policies {
-		sid, err := registry.get(np.Spec.PodSelector)
+// Returned slice is indexed by position in policies.
+func registerAllSelectors(policies []repr.NetworkPolicy, registry *repr.SelectorRegistry) ([]repr.SelectorID, error) {
+	policySelector := make([]repr.SelectorID, len(policies))
+	for i, np := range policies {
+		sid, err := registry.Get(np.PodSelector)
 		if err != nil {
 			return nil, fmt.Errorf("policy %s: %w", np.Name, err)
 		}
-		policySelector[np] = sid
+		policySelector[i] = sid
 
-		for _, rule := range np.Spec.Ingress {
-			if err := registerPeers(rule.From, registry); err != nil {
+		for _, rule := range np.Ingress {
+			if err := registerPeers(rule.Peers, registry); err != nil {
 				return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
 			}
 		}
-		for _, rule := range np.Spec.Egress {
-			if err := registerPeers(rule.To, registry); err != nil {
+		for _, rule := range np.Egress {
+			if err := registerPeers(rule.Peers, registry); err != nil {
 				return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
 			}
 		}
@@ -205,10 +208,10 @@ func registerAllSelectors(policies []*networkingv1.NetworkPolicy, registry *sele
 	return policySelector, nil
 }
 
-func registerPeers(peers []networkingv1.NetworkPolicyPeer, registry *selectorRegistry) error {
+func registerPeers(peers []repr.Peer, registry *repr.SelectorRegistry) error {
 	for _, peer := range peers {
 		if peer.PodSelector != nil {
-			if _, err := registry.get(*peer.PodSelector); err != nil {
+			if _, err := registry.Get(*peer.PodSelector); err != nil {
 				return err
 			}
 		}
@@ -231,58 +234,59 @@ type groupTemplates struct {
 }
 
 // ruleRef is one ingress or egress rule's peer/port spec plus enough of its
-// owning policy to resolve and error-report it, flattened out of
-// NetworkPolicyIngressRule/EgressRule so resolveTupleTemplates can handle
-// both directions with one implementation (the Peer/Port types themselves
-// are already shared between the two rule kinds).
+// owning policy to resolve and error-report it, flattened out of repr.Rule
+// so resolveTupleTemplates can handle both directions with one
+// implementation.
 type ruleRef struct {
 	policyName      string
-	policyNamespace string
-	peers           []networkingv1.NetworkPolicyPeer
-	ports           []networkingv1.NetworkPolicyPort
+	policyNamespace repr.StringID
+	peers           []repr.Peer
+	ports           []repr.Port
 }
 
 // computeGroupTemplates resolves the ingress/egress rule chain once for
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
 // deferring per-pod own-address substitution to the caller.
-func computeGroupTemplates(selfMatch bitset, nsPolicies []*networkingv1.NetworkPolicy, policySelector map[*networkingv1.NetworkPolicy]SelectorID, registry *selectorRegistry, matchedByIdentity []bitset, identitiesByNS map[string][]LabelSetID, podsByNS map[string]map[LabelSetID][]*corev1.Pod, nsIndex *namespaceSelectorCache) (*groupTemplates, error) {
-	var selecting []*networkingv1.NetworkPolicy
-	for _, np := range nsPolicies {
-		if selfMatch.test(uint32(policySelector[np])) {
-			selecting = append(selecting, np)
+func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
+	var selectingIdx []int
+	for _, idx := range nsPolicyIdx {
+		if selfMatch.Test(uint32(policySelector[idx])) {
+			selectingIdx = append(selectingIdx, idx)
 		}
 	}
 
-	var ingressPolicies, egressPolicies []*networkingv1.NetworkPolicy
-	for _, np := range selecting {
-		ingress, egress := effectivePolicyTypes(np)
+	var ingressIdx, egressIdx []int
+	for _, idx := range selectingIdx {
+		ingress, egress := effectivePolicyTypes(in.Policies[idx])
 		if ingress {
-			ingressPolicies = append(ingressPolicies, np)
+			ingressIdx = append(ingressIdx, idx)
 		}
 		if egress {
-			egressPolicies = append(egressPolicies, np)
+			egressIdx = append(egressIdx, idx)
 		}
 	}
 
 	var ingressRules []ruleRef
-	for _, np := range ingressPolicies {
-		for _, rule := range np.Spec.Ingress {
-			ingressRules = append(ingressRules, ruleRef{np.Name, np.Namespace, rule.From, rule.Ports})
+	for _, idx := range ingressIdx {
+		np := in.Policies[idx]
+		for _, rule := range np.Ingress {
+			ingressRules = append(ingressRules, ruleRef{np.Name, np.Namespace, rule.Peers, rule.Ports})
 		}
 	}
-	ingress, err := resolveTupleTemplates(len(ingressPolicies) > 0, ingressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
+	ingress, err := resolveTupleTemplates(len(ingressIdx) > 0, ingressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	var egressRules []ruleRef
-	for _, np := range egressPolicies {
-		for _, rule := range np.Spec.Egress {
-			egressRules = append(egressRules, ruleRef{np.Name, np.Namespace, rule.To, rule.Ports})
+	for _, idx := range egressIdx {
+		np := in.Policies[idx]
+		for _, rule := range np.Egress {
+			egressRules = append(egressRules, ruleRef{np.Name, np.Namespace, rule.Peers, rule.Ports})
 		}
 	}
-	egress, err := resolveTupleTemplates(len(egressPolicies) > 0, egressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
+	egress, err := resolveTupleTemplates(len(egressIdx) > 0, egressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +306,7 @@ func computeGroupTemplates(selfMatch bitset, nsPolicies []*networkingv1.NetworkP
 // can reach (thousands of matching pods) means repeated doubling-and-copy
 // churn, the same issue RenderIndexed's final tuple slice had (see its doc
 // comment).
-func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *selectorRegistry, matchedByIdentity []bitset, identitiesByNS map[string][]LabelSetID, podsByNS map[string]map[LabelSetID][]*corev1.Pod, nsIndex *namespaceSelectorCache) ([]tupleTemplate, error) {
+func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
 	if !isolated {
 		return []tupleTemplate{{verdict: VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
 	}
@@ -318,10 +322,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *selectorReg
 		if err != nil {
 			return nil, fmt.Errorf("policy %s: %w", r.policyName, err)
 		}
-		ports, err := resolvePorts(r.ports)
-		if err != nil {
-			return nil, fmt.Errorf("policy %s: %w", r.policyName, err)
-		}
+		ports := resolvePorts(r.ports)
 		resolved[i] = resolvedRule{peers, ports}
 		total += len(peers) * len(ports)
 	}
@@ -340,13 +341,13 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *selectorReg
 
 // resolvePeersIndexed is resolvePeers' indexed counterpart: instead of
 // scanning every candidate pod in the target namespace(s) and re-evaluating
-// a fresh labels.Selector against each one, it walks the (much smaller) set
-// of distinct identities present per namespace and does an O(1) bitmap test
+// a fresh selector against each one, it walks the (much smaller) set of
+// distinct identities present per namespace and does an O(1) bitmap test
 // per identity, per doc "Label optimizations" #3 and #5.
 //
 // Known simplification, matching resolvePeers: IPBlock.Except sub-ranges
 // are not carved out of the CIDR.
-func resolvePeersIndexed(peers []networkingv1.NetworkPolicyPeer, policyNamespace string, registry *selectorRegistry, matchedByIdentity []bitset, identitiesByNS map[string][]LabelSetID, podsByNS map[string]map[LabelSetID][]*corev1.Pod, nsIndex *namespaceSelectorCache) ([]peerEntry, error) {
+func resolvePeersIndexed(peers []repr.Peer, policyNamespace repr.StringID, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
 	if len(peers) == 0 {
 		return []peerEntry{{wildcard: true}}, nil
 	}
@@ -354,37 +355,37 @@ func resolvePeersIndexed(peers []networkingv1.NetworkPolicyPeer, policyNamespace
 	var entries []peerEntry
 	for _, peer := range peers {
 		if peer.IPBlock != nil {
-			entries = append(entries, peerEntry{addr: peer.IPBlock.CIDR})
+			entries = append(entries, peerEntry{addr: peer.IPBlock.CIDR.String()})
 			continue
 		}
 
-		nsNames := []string{policyNamespace}
+		nsIDs := []repr.StringID{policyNamespace}
 		if peer.NamespaceSelector != nil {
-			names, err := nsIndex.match(*peer.NamespaceSelector)
+			ids, err := nsIndex.Match(*peer.NamespaceSelector)
 			if err != nil {
 				return nil, err
 			}
-			nsNames = names
+			nsIDs = ids
 		}
 
-		var sid SelectorID
+		var sid repr.SelectorID
 		hasSelector := peer.PodSelector != nil
 		if hasSelector {
 			var err error
-			sid, err = registry.get(*peer.PodSelector)
+			sid, err = registry.Get(*peer.PodSelector)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		for _, ns := range nsNames {
+		for _, ns := range nsIDs {
 			for _, id := range identitiesByNS[ns] {
-				if hasSelector && !matchedByIdentity[id].test(uint32(sid)) {
+				if hasSelector && !matchedByIdentity[id].Test(uint32(sid)) {
 					continue
 				}
 				for _, pod := range podsByNS[ns][id] {
-					for _, ip := range podIPs(pod) {
-						entries = append(entries, peerEntry{addr: ip})
+					for _, ip := range pod.IPs {
+						entries = append(entries, peerEntry{addr: ip.String()})
 					}
 				}
 			}

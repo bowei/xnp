@@ -72,15 +72,16 @@ func buildRandomFixture(seed int64) ([]*networkingv1.NetworkPolicy, []*corev1.Po
 // result slot); run with -race to also catch data races.
 func TestRenderParallel_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
+	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(policies, pods, namespaces)
+	want, err := RenderBasic(in)
 	if err != nil {
 		t.Fatalf("RenderBasic: %v", err)
 	}
 
 	for _, workers := range []int{0, 1, 2, 3, 8, 64} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderParallel(policies, pods, namespaces, workers)
+			got, err := RenderParallel(in, workers)
 			if err != nil {
 				t.Fatalf("RenderParallel: %v", err)
 			}
@@ -90,7 +91,8 @@ func TestRenderParallel_MatchesBasic(t *testing.T) {
 }
 
 func TestRenderParallel_Empty(t *testing.T) {
-	tuples, err := RenderParallel(nil, nil, nil, 4)
+	in := mustInput(t, nil, nil, nil)
+	tuples, err := RenderParallel(in, 4)
 	if err != nil {
 		t.Fatalf("RenderParallel: %v", err)
 	}
@@ -112,7 +114,7 @@ func TestRenderParallel_NamedPortUnsupported(t *testing.T) {
 		},
 	}
 
-	if _, err := RenderParallel([]*networkingv1.NetworkPolicy{np}, pods, nil, 4); err == nil {
-		t.Fatal("RenderParallel: expected error for named port, got nil")
+	if _, err := NewInput([]*networkingv1.NetworkPolicy{np}, pods, nil); err == nil {
+		t.Fatal("NewInput: expected error for named port, got nil")
 	}
 }

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/bowei/xnp/internal/repr"
 )
 
 // RenderIndexedParallel is RenderIndexed spread across worker goroutines.
@@ -29,8 +29,8 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace, workers int) ([]Tuple, error) {
-	st, err := prepareIndexedRender(policies, pods, namespaces)
+func RenderIndexedParallel(in *Input, workers int) ([]Tuple, error) {
+	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
 	}
@@ -46,12 +46,12 @@ func RenderIndexedParallel(policies []*networkingv1.NetworkPolicy, pods []*corev
 		return nil, err
 	}
 
-	return materializeTuplesParallel(st.sortedPods, groupIndex, templates, workers)
+	return materializeTuplesParallel(in, st.sortedPods, groupIndex, templates, workers)
 }
 
 // distinctGroups returns the (namespace, identity) groups sortedPods touch,
 // in first-seen order, plus each pod's index into that slice.
-func distinctGroups(sortedPods []*corev1.Pod, podIdentity []LabelSetID) (groups []groupKey, groupIndex []int) {
+func distinctGroups(sortedPods []repr.Pod, podIdentity []repr.LabelSetID) (groups []groupKey, groupIndex []int) {
 	seen := map[groupKey]int{}
 	groupIndex = make([]int, len(sortedPods))
 	for i, pod := range sortedPods {
@@ -94,7 +94,7 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 				key := groups[i]
 				tmpl, err := st.groupTemplatesFor(key)
 				if err != nil {
-					errs[i] = fmt.Errorf("namespace %s: %w", key.ns, err)
+					errs[i] = fmt.Errorf("namespace %s: %w", st.in.Table.String(key.ns), err)
 					continue
 				}
 				templates[i] = tmpl
@@ -122,7 +122,7 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 // slice and a final pass concatenating all of them, which briefly doubles
 // peak memory (both copies of ~25M tuples live at once) and, at that size,
 // loses more to the resulting GC pressure than the parallel fan-out saves.
-func materializeTuplesParallel(sortedPods []*corev1.Pod, groupIndex []int, templates []*groupTemplates, workers int) ([]Tuple, error) {
+func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) ([]Tuple, error) {
 	if len(sortedPods) == 0 {
 		return nil, nil
 	}
@@ -133,7 +133,7 @@ func materializeTuplesParallel(sortedPods []*corev1.Pod, groupIndex []int, templ
 	ownIPs := make([][]string, len(sortedPods))
 	offsets := make([]int, len(sortedPods)+1)
 	for i, pod := range sortedPods {
-		ips := podIPs(pod)
+		ips := podIPStrings(pod)
 		ownIPs[i] = ips
 		n := len(ips)
 		if n == 0 {
@@ -158,7 +158,7 @@ func materializeTuplesParallel(sortedPods []*corev1.Pod, groupIndex []int, templ
 				}
 				pod := sortedPods[i]
 				tmpl := templates[groupIndex[i]]
-				podName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+				podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
 
 				dst := tuples[offsets[i]:offsets[i+1]]
 				n := 0

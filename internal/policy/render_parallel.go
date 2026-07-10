@@ -5,16 +5,13 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-
-	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 )
 
 // RenderParallel is equivalent to RenderBasic but spreads per-pod rendering
 // across workers goroutines. workers <= 0 defaults to runtime.GOMAXPROCS(0).
 // Output tuple order matches RenderBasic exactly.
-func RenderParallel(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, namespaces []*corev1.Namespace, workers int) ([]Tuple, error) {
-	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(policies, pods)
+func RenderParallel(in *Input, workers int) ([]Tuple, error) {
+	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(in)
 
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -38,9 +35,9 @@ func RenderParallel(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, 
 					return
 				}
 				pod := sortedPods[i]
-				podTuples, err := renderPod(pod, policiesByNamespace[pod.Namespace], podsByNamespace, namespaces)
+				podTuples, err := renderPod(in, pod, policiesByNamespace[pod.Namespace], podsByNamespace)
 				if err != nil {
-					errs[i] = fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
+					errs[i] = fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 					continue
 				}
 				results[i] = podTuples
