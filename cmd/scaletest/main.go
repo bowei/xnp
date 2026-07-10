@@ -32,11 +32,17 @@ func rootCmd() *cobra.Command {
 func renderCmd() *cobra.Command {
 	def := scaletest.DefaultConfig()
 	var cfg scaletest.Config
+	var renderer string
+	var workers int
 
 	cmd := &cobra.Command{
 		Use:   "render",
 		Short: "Generate a synthetic namespace/pod/policy set and render it",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if renderer != "basic" && renderer != "parallel" {
+				return fmt.Errorf("--renderer must be %q or %q, got %q", "basic", "parallel", renderer)
+			}
+
 			stopMem := scaletest.TrackMemory(50 * time.Millisecond)
 
 			start := time.Now()
@@ -48,7 +54,12 @@ func renderCmd() *cobra.Command {
 			}
 
 			start = time.Now()
-			tuples, err := policy.RenderBasic(tc.Policies, tc.Pods, tc.Namespaces)
+			var tuples []policy.Tuple
+			if renderer == "parallel" {
+				tuples, err = policy.RenderParallel(tc.Policies, tc.Pods, tc.Namespaces, workers)
+			} else {
+				tuples, err = policy.RenderBasic(tc.Policies, tc.Pods, tc.Namespaces)
+			}
 			renderDur := time.Since(start)
 			mem := stopMem()
 			if err != nil {
@@ -69,6 +80,8 @@ func renderCmd() *cobra.Command {
 	flags.Int64Var(&cfg.Seed, "seed", def.Seed, "random seed; the same seed always generates the same test case")
 	flags.IntVar(&cfg.LabelCardinality, "label-cardinality", def.LabelCardinality, "distinct label values pods/namespaces are drawn from (lower = broader selector matches)")
 	flags.StringVar(&cfg.PodCIDR, "pod-cidr", def.PodCIDR, "CIDR range pod IPs are allocated from")
+	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic" or "parallel"`)
+	flags.IntVar(&workers, "workers", 0, "worker goroutines for --renderer=parallel (<=0 means runtime.GOMAXPROCS(0))")
 
 	cfg.RulesPerPolicy = def.RulesPerPolicy
 	cfg.PeersPerRule = def.PeersPerRule

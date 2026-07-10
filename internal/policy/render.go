@@ -7,6 +7,7 @@ package policy
 
 import (
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -63,6 +64,36 @@ type portEntry struct {
 	port     *int32
 	endPort  *int32
 	wildcard bool
+}
+
+// prepareRender sorts pods into a deterministic order and buckets both pods
+// and policies by namespace, ready for per-pod rendering. Shared by
+// RenderBasic and RenderParallel so their inputs and pod ordering can't
+// drift apart.
+func prepareRender(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod) (sortedPods []*corev1.Pod, podsByNamespace map[string][]*corev1.Pod, policiesByNamespace map[string][]*networkingv1.NetworkPolicy) {
+	sortedPods = append([]*corev1.Pod(nil), pods...)
+	sort.Slice(sortedPods, func(i, j int) bool {
+		if sortedPods[i].Namespace != sortedPods[j].Namespace {
+			return sortedPods[i].Namespace < sortedPods[j].Namespace
+		}
+		return sortedPods[i].Name < sortedPods[j].Name
+	})
+
+	podsByNamespace = map[string][]*corev1.Pod{}
+	for _, p := range sortedPods {
+		podsByNamespace[p.Namespace] = append(podsByNamespace[p.Namespace], p)
+	}
+
+	policiesByNamespace = map[string][]*networkingv1.NetworkPolicy{}
+	for _, np := range policies {
+		policiesByNamespace[np.Namespace] = append(policiesByNamespace[np.Namespace], np)
+	}
+	for ns := range policiesByNamespace {
+		nps := policiesByNamespace[ns]
+		sort.Slice(nps, func(i, j int) bool { return nps[i].Name < nps[j].Name })
+	}
+
+	return sortedPods, podsByNamespace, policiesByNamespace
 }
 
 // renderPod computes the full ingress+egress rule chain for a single pod.
