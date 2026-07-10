@@ -273,8 +273,27 @@ func resolvePorts(ports []networkingv1.NetworkPolicyPort) ([]portEntry, error) {
 
 // makeTuples materializes one Tuple per own-IP of the enforcing pod (a pod
 // may have more than one IP under dual-stack), combining it with a single
-// resolved peer/port pair.
+// resolved peer/port pair. It's a thin allocating wrapper around writeTuples
+// for RenderBasic/RenderParallel, which don't know their total output size
+// up front (see doc comment on RenderIndexed for why that matters at scale);
+// RenderIndexed and RenderIndexedParallel call writeTuples directly into a
+// preallocated result slice instead, to skip this allocation entirely.
 func makeTuples(pod types.NamespacedName, ownIPs []string, dir Direction, verdict Verdict, peer peerEntry, port portEntry) []Tuple {
+	n := len(ownIPs)
+	if n == 0 {
+		n = 1
+	}
+	tuples := make([]Tuple, n)
+	writeTuples(tuples, pod, ownIPs, dir, verdict, peer, port)
+	return tuples
+}
+
+// writeTuples is makeTuples' non-allocating counterpart: it writes directly
+// into dst (which must have length >= max(len(ownIPs), 1)) and returns the
+// count written, so a caller that already knows its total output size can
+// fill one preallocated slice instead of allocating and copying a temporary
+// slice per call.
+func writeTuples(dst []Tuple, pod types.NamespacedName, ownIPs []string, dir Direction, verdict Verdict, peer peerEntry, port portEntry) int {
 	peerAddr := ""
 	if !peer.wildcard {
 		peerAddr = peer.addr
@@ -295,8 +314,7 @@ func makeTuples(pod types.NamespacedName, ownIPs []string, dir Direction, verdic
 		ips = []string{""}
 	}
 
-	tuples := make([]Tuple, 0, len(ips))
-	for _, own := range ips {
+	for i, own := range ips {
 		t := Tuple{
 			Pod:       pod,
 			Port:      portPtr,
@@ -310,7 +328,7 @@ func makeTuples(pod types.NamespacedName, ownIPs []string, dir Direction, verdic
 		} else {
 			t.Src, t.Dest = own, peerAddr
 		}
-		tuples = append(tuples, t)
+		dst[i] = t
 	}
-	return tuples
+	return len(ips)
 }

@@ -73,10 +73,10 @@ func RenderIndexed(policies []*networkingv1.NetworkPolicy, pods []*corev1.Pod, n
 		dst := tuples[offsets[i]:offsets[i+1]]
 		n := 0
 		for _, tt := range tmpl.ingress {
-			n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port))
+			n += writeTuples(dst[n:], podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port)
 		}
 		for _, tt := range tmpl.egress {
-			n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port))
+			n += writeTuples(dst[n:], podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port)
 		}
 	}
 
@@ -230,6 +230,18 @@ type groupTemplates struct {
 	egress  []tupleTemplate
 }
 
+// ruleRef is one ingress or egress rule's peer/port spec plus enough of its
+// owning policy to resolve and error-report it, flattened out of
+// NetworkPolicyIngressRule/EgressRule so resolveTupleTemplates can handle
+// both directions with one implementation (the Peer/Port types themselves
+// are already shared between the two rule kinds).
+type ruleRef struct {
+	policyName      string
+	policyNamespace string
+	peers           []networkingv1.NetworkPolicyPeer
+	ports           []networkingv1.NetworkPolicyPort
+}
+
 // computeGroupTemplates resolves the ingress/egress rule chain once for
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
@@ -253,55 +265,77 @@ func computeGroupTemplates(selfMatch bitset, nsPolicies []*networkingv1.NetworkP
 		}
 	}
 
-	tmpl := &groupTemplates{}
-
-	if len(ingressPolicies) == 0 {
-		tmpl.ingress = append(tmpl.ingress, tupleTemplate{verdict: VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
-	} else {
-		for _, np := range ingressPolicies {
-			for _, rule := range np.Spec.Ingress {
-				peers, err := resolvePeersIndexed(rule.From, np.Namespace, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
-				}
-				ports, err := resolvePorts(rule.Ports)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
-				}
-				for _, peer := range peers {
-					for _, port := range ports {
-						tmpl.ingress = append(tmpl.ingress, tupleTemplate{verdict: VerdictAllow, peer: peer, port: port})
-					}
-				}
-			}
+	var ingressRules []ruleRef
+	for _, np := range ingressPolicies {
+		for _, rule := range np.Spec.Ingress {
+			ingressRules = append(ingressRules, ruleRef{np.Name, np.Namespace, rule.From, rule.Ports})
 		}
-		tmpl.ingress = append(tmpl.ingress, tupleTemplate{verdict: VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
+	}
+	ingress, err := resolveTupleTemplates(len(ingressPolicies) > 0, ingressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(egressPolicies) == 0 {
-		tmpl.egress = append(tmpl.egress, tupleTemplate{verdict: VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
-	} else {
-		for _, np := range egressPolicies {
-			for _, rule := range np.Spec.Egress {
-				peers, err := resolvePeersIndexed(rule.To, np.Namespace, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
-				}
-				ports, err := resolvePorts(rule.Ports)
-				if err != nil {
-					return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
-				}
-				for _, peer := range peers {
-					for _, port := range ports {
-						tmpl.egress = append(tmpl.egress, tupleTemplate{verdict: VerdictAllow, peer: peer, port: port})
-					}
-				}
-			}
+	var egressRules []ruleRef
+	for _, np := range egressPolicies {
+		for _, rule := range np.Spec.Egress {
+			egressRules = append(egressRules, ruleRef{np.Name, np.Namespace, rule.To, rule.Ports})
 		}
-		tmpl.egress = append(tmpl.egress, tupleTemplate{verdict: VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
+	}
+	egress, err := resolveTupleTemplates(len(egressPolicies) > 0, egressRules, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
+	if err != nil {
+		return nil, err
 	}
 
-	return tmpl, nil
+	return &groupTemplates{ingress: ingress, egress: egress}, nil
+}
+
+// resolveTupleTemplates resolves one direction's already-flattened rules
+// into its allow entries, appending the trailing default-verdict wildcard:
+// Allow if isolated is false (no selecting policy at all for this
+// direction), Deny otherwise (isolated, whether by a policy with zero rules
+// or by rules that matched no peers).
+//
+// Peers/ports for every rule are resolved once, up front, which also yields
+// the total tupleTemplate count before entries is allocated — instead of
+// growing it via append, which at the fan-out a single rule's podSelector
+// can reach (thousands of matching pods) means repeated doubling-and-copy
+// churn, the same issue RenderIndexed's final tuple slice had (see its doc
+// comment).
+func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *selectorRegistry, matchedByIdentity []bitset, identitiesByNS map[string][]LabelSetID, podsByNS map[string]map[LabelSetID][]*corev1.Pod, nsIndex *namespaceSelectorCache) ([]tupleTemplate, error) {
+	if !isolated {
+		return []tupleTemplate{{verdict: VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
+	}
+
+	type resolvedRule struct {
+		peers []peerEntry
+		ports []portEntry
+	}
+	resolved := make([]resolvedRule, len(rules))
+	total := 0
+	for i, r := range rules {
+		peers, err := resolvePeersIndexed(r.peers, r.policyNamespace, registry, matchedByIdentity, identitiesByNS, podsByNS, nsIndex)
+		if err != nil {
+			return nil, fmt.Errorf("policy %s: %w", r.policyName, err)
+		}
+		ports, err := resolvePorts(r.ports)
+		if err != nil {
+			return nil, fmt.Errorf("policy %s: %w", r.policyName, err)
+		}
+		resolved[i] = resolvedRule{peers, ports}
+		total += len(peers) * len(ports)
+	}
+
+	entries := make([]tupleTemplate, 0, total+1)
+	for _, rr := range resolved {
+		for _, peer := range rr.peers {
+			for _, port := range rr.ports {
+				entries = append(entries, tupleTemplate{verdict: VerdictAllow, peer: peer, port: port})
+			}
+		}
+	}
+	entries = append(entries, tupleTemplate{verdict: VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
+	return entries, nil
 }
 
 // resolvePeersIndexed is resolvePeers' indexed counterpart: instead of

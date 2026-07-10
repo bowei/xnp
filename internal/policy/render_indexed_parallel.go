@@ -163,10 +163,10 @@ func materializeTuplesParallel(sortedPods []*corev1.Pod, groupIndex []int, templ
 				dst := tuples[offsets[i]:offsets[i+1]]
 				n := 0
 				for _, tt := range tmpl.ingress {
-					n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port))
+					n += writeTuples(dst[n:], podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port)
 				}
 				for _, tt := range tmpl.egress {
-					n += copy(dst[n:], makeTuples(podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port))
+					n += writeTuples(dst[n:], podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port)
 				}
 			}
 		}()
