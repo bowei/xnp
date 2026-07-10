@@ -7,7 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/bowei/xnp/internal/policy"
+	"github.com/bowei/xnp/internal/tuple"
 )
 
 // Stats summarizes a distribution of per-object tuple counts.
@@ -37,7 +37,7 @@ type Report struct {
 // Tuples policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, tuples []policy.Tuple, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
+func Summarize(tc *TestCase, tuples []tuple.Tuple, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {

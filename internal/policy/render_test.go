@@ -9,6 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/bowei/xnp/internal/tuple"
 )
 
 func pod(namespace, name, ip string, labels map[string]string) *corev1.Pod {
@@ -41,8 +43,8 @@ func protoP(p corev1.Protocol) *corev1.Protocol { return new(p) }
 
 // sortTuples gives tests a stable order to compare against, independent of
 // the (documented but not load-bearing) emission order.
-func sortTuples(tuples []Tuple) []Tuple {
-	out := append([]Tuple(nil), tuples...)
+func sortTuples(tuples []tuple.Tuple) []tuple.Tuple {
+	out := append([]tuple.Tuple(nil), tuples...)
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Pod != b.Pod {
@@ -72,9 +74,9 @@ func TestRender_UnisolatedPod(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -96,9 +98,9 @@ func TestRender_IsolatedNoRules(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictDeny},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictDeny},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -121,11 +123,11 @@ func TestRender_EmptyFromAndPorts(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "a"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 		// Egress not in PolicyTypes -> unisolated -> allow-all catch-all.
-		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+		{Pod: nsName("ns", "a"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -162,18 +164,18 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	// Only the "web" pod is selected/isolated; others are unisolated.
-	var webTuples []Tuple
+	var webTuples []tuple.Tuple
 	for _, tup := range tuples {
 		if tup.Pod == nsName("ns", "web") {
 			webTuples = append(webTuples, tup)
 		}
 	}
 
-	want := []Tuple{
-		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, webTuples, want)
 }
@@ -207,17 +209,17 @@ func TestRender_NamespaceSelectorPeer(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	var webTuples []Tuple
+	var webTuples []tuple.Tuple
 	for _, tup := range tuples {
 		if tup.Pod == nsName("ns-a", "web") {
 			webTuples = append(webTuples, tup)
 		}
 	}
 
-	want := []Tuple{
-		{Pod: nsName("ns-a", "web"), Src: "10.0.1.1", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns-a", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns-a", "web"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns-a", "web"), Src: "10.0.1.1", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns-a", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns-a", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, webTuples, want)
 }
@@ -244,10 +246,10 @@ func TestRender_IPBlockPeer(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "web"), Src: "192.168.0.0/16", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "web"), Src: "192.168.0.0/16", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -276,10 +278,10 @@ func TestRender_PortRange(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: int32p(8000), EndPort: int32p(8080), Protocol: corev1.ProtocolTCP, Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictAllow},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: int32p(8000), EndPort: int32p(8080), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -318,17 +320,17 @@ func TestRender_MultiplePoliciesUnioned(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	var webIngress []Tuple
+	var webIngress []tuple.Tuple
 	for _, tup := range tuples {
-		if tup.Pod == nsName("ns", "web") && tup.Direction == DirectionIngress {
+		if tup.Pod == nsName("ns", "web") && tup.Direction == tuple.DirectionIngress {
 			webIngress = append(webIngress, tup)
 		}
 	}
 
-	want := []Tuple{
-		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 	}
 	assertTuples(t, webIngress, want)
 }
@@ -356,10 +358,10 @@ func TestRender_DefaultPolicyTypes(t *testing.T) {
 	}
 	assertIndexedMatchesBasic(t, in, tuples)
 
-	want := []Tuple{
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: DirectionIngress, Verdict: VerdictDeny},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "1.1.1.1/32", Direction: DirectionEgress, Verdict: VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: DirectionEgress, Verdict: VerdictDeny},
+	want := []tuple.Tuple{
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "1.1.1.1/32", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictDeny},
 	}
 	assertTuples(t, tuples, want)
 }
@@ -393,7 +395,7 @@ func nsName(namespace, name string) types.NamespacedName {
 // exercised against the same edge cases (unisolated pods, IPBlocks, port
 // ranges, PolicyTypes defaulting, namespaceSelector peers, ...) without
 // duplicating each test's fixture.
-func assertIndexedMatchesBasic(t *testing.T, in *Input, basic []Tuple) {
+func assertIndexedMatchesBasic(t *testing.T, in *Input, basic []tuple.Tuple) {
 	t.Helper()
 	indexed, err := RenderIndexed(in)
 	if err != nil {
@@ -402,7 +404,7 @@ func assertIndexedMatchesBasic(t *testing.T, in *Input, basic []Tuple) {
 	assertTuples(t, indexed, basic)
 }
 
-func assertTuples(t *testing.T, got, want []Tuple) {
+func assertTuples(t *testing.T, got, want []tuple.Tuple) {
 	t.Helper()
 	gotSorted, wantSorted := sortTuples(got), sortTuples(want)
 	if len(gotSorted) != len(wantSorted) {

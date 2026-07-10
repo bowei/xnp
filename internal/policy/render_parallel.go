@@ -5,12 +5,14 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+
+	"github.com/bowei/xnp/internal/tuple"
 )
 
 // RenderParallel is equivalent to RenderBasic but spreads per-pod rendering
 // across workers goroutines. workers <= 0 defaults to runtime.GOMAXPROCS(0).
 // Output tuple order matches RenderBasic exactly.
-func RenderParallel(in *Input, workers int) ([]Tuple, error) {
+func RenderParallel(in *Input, workers int) ([]tuple.Tuple, error) {
 	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(in)
 
 	if workers <= 0 {
@@ -20,7 +22,7 @@ func RenderParallel(in *Input, workers int) ([]Tuple, error) {
 		workers = len(sortedPods)
 	}
 
-	results := make([][]Tuple, len(sortedPods))
+	results := make([][]tuple.Tuple, len(sortedPods))
 	errs := make([]error, len(sortedPods))
 
 	var next atomic.Int64
@@ -52,7 +54,7 @@ func RenderParallel(in *Input, workers int) ([]Tuple, error) {
 		}
 	}
 
-	var tuples []Tuple
+	var tuples []tuple.Tuple
 	for _, podTuples := range results {
 		tuples = append(tuples, podTuples...)
 	}

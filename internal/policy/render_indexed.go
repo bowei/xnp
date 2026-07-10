@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/bowei/xnp/internal/repr"
+	"github.com/bowei/xnp/internal/tuple"
 )
 
 // RenderIndexed is equivalent to RenderBasic but avoids brute-force
@@ -35,7 +36,7 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input) ([]Tuple, error) {
+func RenderIndexed(in *Input) ([]tuple.Tuple, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -67,17 +68,17 @@ func RenderIndexed(in *Input) ([]Tuple, error) {
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	tuples := make([]Tuple, offsets[len(st.sortedPods)])
+	tuples := make([]tuple.Tuple, offsets[len(st.sortedPods)])
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
 		dst := tuples[offsets[i]:offsets[i+1]]
 		n := 0
 		for _, tt := range tmpl.ingress {
-			n += writeTuples(dst[n:], podName, ownIPs[i], DirectionIngress, tt.verdict, tt.peer, tt.port)
+			n += writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 		}
 		for _, tt := range tmpl.egress {
-			n += writeTuples(dst[n:], podName, ownIPs[i], DirectionEgress, tt.verdict, tt.peer, tt.port)
+			n += writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 		}
 	}
 
@@ -223,7 +224,7 @@ func registerPeers(peers []repr.Peer, registry *repr.SelectorRegistry) error {
 // (namespace, identity) group, missing only the enforcing pod's own
 // address(es) — supplied later by makeTuples per pod.
 type tupleTemplate struct {
-	verdict Verdict
+	verdict tuple.Verdict
 	peer    peerEntry
 	port    portEntry
 }
@@ -308,7 +309,7 @@ func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, 
 // comment).
 func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
 	if !isolated {
-		return []tupleTemplate{{verdict: VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
+		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
 	}
 
 	type resolvedRule struct {
@@ -331,11 +332,11 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 	for _, rr := range resolved {
 		for _, peer := range rr.peers {
 			for _, port := range rr.ports {
-				entries = append(entries, tupleTemplate{verdict: VerdictAllow, peer: peer, port: port})
+				entries = append(entries, tupleTemplate{verdict: tuple.VerdictAllow, peer: peer, port: port})
 			}
 		}
 	}
-	entries = append(entries, tupleTemplate{verdict: VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
+	entries = append(entries, tupleTemplate{verdict: tuple.VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
 	return entries, nil
 }
 
