@@ -65,17 +65,17 @@ func (a *IdentityAllocator) Len() int {
 	return len(a.sets)
 }
 
-func hashLabelKV(sorted []uint64) uint64 {
+func hashLabelKV(sorted []kvPair) uint64 {
 	h := fnv.New64a()
 	var b [8]byte
 	for _, x := range sorted {
-		binary.LittleEndian.PutUint64(b[:], x)
+		binary.LittleEndian.PutUint64(b[:], uint64(x))
 		h.Write(b[:])
 	}
 	return h.Sum64()
 }
 
-func labelKVEqual(a, b []uint64) bool {
+func labelKVEqual(a, b []kvPair) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -116,7 +116,7 @@ type residualReq struct {
 //   - residual: DoesNotExist/NotIn/multi-value-In, evaluated only on
 //     candidates that already cleared the indexed part.
 type CompiledSelector struct {
-	exact      []uint64 // sorted
+	exact      []kvPair // sorted
 	existsKeys []StringID
 	residual   []residualReq
 }
@@ -133,7 +133,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 	var cs CompiledSelector
 
 	for k, v := range sel.MatchLabels {
-		cs.exact = append(cs.exact, labelKV(tbl.Intern(k), tbl.Intern(v)))
+		cs.exact = append(cs.exact, newKVPair(tbl.Intern(k), tbl.Intern(v)))
 	}
 
 	for _, expr := range sel.MatchExpressions {
@@ -144,7 +144,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 				return CompiledSelector{}, fmt.Errorf("selector: In requires at least one value for key %q", expr.Key)
 			}
 			if len(expr.Values) == 1 {
-				cs.exact = append(cs.exact, labelKV(key, tbl.Intern(expr.Values[0])))
+				cs.exact = append(cs.exact, newKVPair(key, tbl.Intern(expr.Values[0])))
 				continue
 			}
 			values := make(map[StringID]struct{}, len(expr.Values))
@@ -180,8 +180,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 // exactly this check at scale.
 func (cs CompiledSelector) Matches(ls LabelSet) bool {
 	for _, e := range cs.exact {
-		key, val := StringID(e>>32), StringID(uint32(e))
-		if v, ok := ls.kv[key]; !ok || v != val {
+		if v, ok := ls.kv[e.key()]; !ok || v != e.value() {
 			return false
 		}
 	}
@@ -321,7 +320,7 @@ func (b Bitset) Test(i uint32) bool {
 // costs O(label-set size) index probes instead of O(selector count) full
 // selector evaluations.
 type InvertedIndex struct {
-	byExact map[uint64][]SelectorID
+	byExact map[kvPair][]SelectorID
 	byKey   map[StringID][]SelectorID // Exists requirements, indexed by key alone
 	// scanAlways holds selectors with zero positive (exact/Exists)
 	// requirements — an empty selector, or one built purely from
@@ -334,7 +333,7 @@ type InvertedIndex struct {
 
 func BuildInvertedIndex(compiled []CompiledSelector) *InvertedIndex {
 	idx := &InvertedIndex{
-		byExact:  map[uint64][]SelectorID{},
+		byExact:  map[kvPair][]SelectorID{},
 		byKey:    map[StringID][]SelectorID{},
 		required: make([]int, len(compiled)),
 		compiled: compiled,
