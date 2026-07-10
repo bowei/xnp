@@ -35,12 +35,6 @@ func mustInput(t *testing.T, policies []*networkingv1.NetworkPolicy, pods []*cor
 	return in
 }
 
-//go:fix inline
-func int32p(v int32) *int32 { return new(v) }
-
-//go:fix inline
-func protoP(p corev1.Protocol) *corev1.Protocol { return new(p) }
-
 // sortTuples gives tests a stable order to compare against, independent of
 // the (documented but not load-bearing) emission order.
 func sortTuples(tuples []tuple.Tuple) []tuple.Tuple {
@@ -152,7 +146,7 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 					PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "client"}},
 				}},
 				Ports: []networkingv1.NetworkPolicyPort{{
-					Protocol: protoP(corev1.ProtocolTCP),
+					Protocol: new(corev1.ProtocolTCP),
 					Port:     &intstr.IntOrString{Type: intstr.Int, IntVal: 80},
 				}},
 			}},
@@ -176,8 +170,8 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 	}
 
 	want := []tuple.Tuple{
-		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: int32p(80), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
@@ -269,9 +263,9 @@ func TestRender_PortRange(t *testing.T) {
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{{
 				Ports: []networkingv1.NetworkPolicyPort{{
-					Protocol: protoP(corev1.ProtocolTCP),
+					Protocol: new(corev1.ProtocolTCP),
 					Port:     &intstr.IntOrString{Type: intstr.Int, IntVal: 8000},
-					EndPort:  int32p(8080),
+					EndPort:  new(int32(8080)),
 				}},
 			}},
 		},
@@ -286,7 +280,7 @@ func TestRender_PortRange(t *testing.T) {
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: int32p(8000), EndPort: int32p(8080), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: new(int32(8000)), EndPort: new(int32(8080)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}

@@ -55,7 +55,7 @@ func renderCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("create cpu profile: %w", err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				if err := pprof.StartCPUProfile(f); err != nil {
 					return fmt.Errorf("start cpu profile: %w", err)
 				}
@@ -108,7 +108,7 @@ func renderCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("create mem profile: %w", err)
 				}
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				runtime.GC()
 				if err := pprof.WriteHeapProfile(f); err != nil {
 					return fmt.Errorf("write mem profile: %w", err)
