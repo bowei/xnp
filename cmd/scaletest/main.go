@@ -14,7 +14,7 @@ import (
 
 	"github.com/bowei/xnp/internal/policy"
 	"github.com/bowei/xnp/internal/scaletest"
-	"github.com/bowei/xnp/internal/tuple"
+	"github.com/bowei/xnp/internal/store"
 )
 
 func main() {
@@ -81,7 +81,7 @@ func renderCmd() *cobra.Command {
 			}
 
 			start = time.Now()
-			var store tuple.Store
+			var store store.Store
 			switch renderer {
 			case "parallel":
 				store, err = policy.RenderParallel(in, workers)

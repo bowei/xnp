@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/bowei/xnp/internal/repr"
+	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
 )
 
@@ -30,7 +31,7 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(in *Input, workers int) (tuple.Store, error) {
+func RenderIndexedParallel(in *Input, workers int) (store.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -123,9 +124,15 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 // slice and a final pass concatenating all of them, which briefly doubles
 // peak memory (both copies of ~25M tuples live at once) and, at that size,
 // loses more to the resulting GC pressure than the parallel fan-out saves.
-func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) (tuple.Store, error) {
+func materializeTuplesParallel(
+	in *Input,
+	sortedPods []repr.Pod,
+	groupIndex []int,
+	templates []*groupTemplates,
+	workers int,
+) (store.Store, error) {
 	if len(sortedPods) == 0 {
-		return tuple.NewStore(0), nil
+		return store.NewStore(0), nil
 	}
 	if workers > len(sortedPods) {
 		workers = len(sortedPods)
@@ -144,8 +151,8 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	store := tuple.NewStore(offsets[len(sortedPods)])
-	tuples := store.Reserve(offsets[len(sortedPods)])
+	tupleStore := store.NewStore(offsets[len(sortedPods)])
+	tuples := tupleStore.Reserve(offsets[len(sortedPods)])
 	errs := make([]error, len(sortedPods))
 
 	var next atomic.Int64
@@ -197,5 +204,5 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 			return nil, err
 		}
 	}
-	return store, nil
+	return tupleStore, nil
 }

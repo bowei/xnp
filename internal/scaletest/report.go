@@ -5,9 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bowei/xnp/internal/store"
 	"k8s.io/apimachinery/pkg/types"
-
-	"github.com/bowei/xnp/internal/tuple"
 )
 
 // Stats summarizes a distribution of per-object tuple counts.
@@ -37,7 +36,7 @@ type Report struct {
 // Store policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, store tuple.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
+func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {
@@ -48,7 +47,7 @@ func Summarize(tc *TestCase, store tuple.Store, genDur, convDur, renderDur time.
 
 	tuplesPerPod := make(map[types.NamespacedName]int, len(tc.Pods))
 	tuplesPerNode := make(map[string]int, len(nodes))
-	for _, t := range store.List() {
+	for _, t := range tupleStore.List() {
 		tuplesPerPod[t.Pod]++
 		tuplesPerNode[nodeOf[t.Pod]]++
 	}
@@ -58,7 +57,7 @@ func Summarize(tc *TestCase, store tuple.Store, genDur, convDur, renderDur time.
 		Nodes:            len(nodes),
 		Pods:             len(tc.Pods),
 		Policies:         len(tc.Policies),
-		Tuples:           store.Len(),
+		Tuples:           tupleStore.Len(),
 		GenerateDuration: genDur,
 		ConvertDuration:  convDur,
 		RenderDuration:   renderDur,

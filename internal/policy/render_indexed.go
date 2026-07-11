@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/bowei/xnp/internal/repr"
+	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
 )
 
@@ -36,7 +37,7 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input) (tuple.Store, error) {
+func RenderIndexed(in *Input) (store.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -68,8 +69,8 @@ func RenderIndexed(in *Input) (tuple.Store, error) {
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	store := tuple.NewStore(offsets[len(st.sortedPods)])
-	tuples := store.Reserve(offsets[len(st.sortedPods)])
+	tupleStore := store.NewStore(offsets[len(st.sortedPods)])
+	tuples := tupleStore.Reserve(offsets[len(st.sortedPods)])
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
@@ -91,7 +92,7 @@ func RenderIndexed(in *Input) (tuple.Store, error) {
 		}
 	}
 
-	return store, nil
+	return tupleStore, nil
 }
 
 // groupKey identifies a (namespace, identity) group: every pod sharing a key
