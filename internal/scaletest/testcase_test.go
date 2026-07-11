@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/bowei/xnp/internal/policy"
+	"github.com/bowei/xnp/internal/store"
 )
 
 func TestGenerate_Counts(t *testing.T) {
@@ -64,7 +65,7 @@ func TestGenerate_RendersCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInput: %v", err)
 	}
-	if _, err := policy.RenderBasic(in); err != nil {
+	if err := policy.RenderBasic(in, store.NewStore(0)); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 }

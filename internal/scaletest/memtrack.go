@@ -12,6 +12,28 @@ type MemStats struct {
 	Min, Max   uint64
 }
 
+// AllocSnapshot captures runtime.MemStats counters that only grow over the
+// life of the process (TotalAlloc, Mallocs). Unlike HeapAlloc, these aren't
+// reduced by GC reclaiming memory mid-phase, so diffing two snapshots with
+// Since gives the allocation attributable to whatever ran in between.
+type AllocSnapshot struct {
+	Bytes   uint64
+	Mallocs uint64
+}
+
+// SnapshotAlloc reads the current cumulative allocation counters.
+func SnapshotAlloc() AllocSnapshot {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return AllocSnapshot{Bytes: m.TotalAlloc, Mallocs: m.Mallocs}
+}
+
+// Since returns the allocation that occurred between an earlier snapshot
+// start and end.
+func (end AllocSnapshot) Since(start AllocSnapshot) AllocSnapshot {
+	return AllocSnapshot{Bytes: end.Bytes - start.Bytes, Mallocs: end.Mallocs - start.Mallocs}
+}
+
 // TrackMemory starts a background goroutine that samples the process's heap
 // allocation every interval. Call the returned stop func to end sampling; it
 // blocks until the goroutine exits and returns the observed MemStats,

@@ -39,6 +39,7 @@ func renderCmd() *cobra.Command {
 	var workers int
 	var cpuProfile string
 	var memProfile string
+	var nullStore bool
 
 	cmd := &cobra.Command{
 		Use:   "render",
@@ -64,33 +65,43 @@ func renderCmd() *cobra.Command {
 
 			stopMem := scaletest.TrackMemory(50 * time.Millisecond)
 
+			allocBefore := scaletest.SnapshotAlloc()
 			start := time.Now()
 			tc, err := scaletest.Generate(cfg)
 			genDur := time.Since(start)
+			genAlloc := scaletest.SnapshotAlloc().Since(allocBefore)
 			if err != nil {
 				stopMem()
 				return err
 			}
 
+			allocBefore = scaletest.SnapshotAlloc()
 			start = time.Now()
 			in, err := policy.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
 			convDur := time.Since(start)
+			convAlloc := scaletest.SnapshotAlloc().Since(allocBefore)
 			if err != nil {
 				stopMem()
 				return fmt.Errorf("convert: %w", err)
 			}
 
+			var tupleStore store.Store
+			if nullStore {
+				tupleStore = store.NewNull()
+			} else {
+				tupleStore = store.NewStore(0)
+			}
+
 			start = time.Now()
-			var store store.Store
 			switch renderer {
 			case "parallel":
-				store, err = policy.RenderParallel(in, workers)
+				err = policy.RenderParallel(in, tupleStore, workers)
 			case "indexed":
-				store, err = policy.RenderIndexed(in)
+				err = policy.RenderIndexed(in, tupleStore)
 			case "indexed-parallel":
-				store, err = policy.RenderIndexedParallel(in, workers)
+				err = policy.RenderIndexedParallel(in, tupleStore, workers)
 			default:
-				store, err = policy.RenderBasic(in)
+				err = policy.RenderBasic(in, tupleStore)
 			}
 			renderDur := time.Since(start)
 			mem := stopMem()
@@ -98,7 +109,7 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			report := scaletest.Summarize(tc, store, genDur, convDur, renderDur, mem)
+			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, mem)
 			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
 				return err
 			}
@@ -130,6 +141,7 @@ func renderCmd() *cobra.Command {
 	flags.IntVar(&workers, "workers", 0, "worker goroutines for --renderer=parallel or --renderer=indexed-parallel (<=0 means runtime.GOMAXPROCS(0))")
 	flags.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU profile to this file")
 	flags.StringVar(&memProfile, "memprofile", "", "write a heap profile to this file after rendering")
+	flags.BoolVar(&nullStore, "null-store", false, "discard rendered tuples instead of retaining them (for benchmarking render time/memory without result-retention cost; tuples/pod and tuples/node in the report will read as 0 since the store can't list what it discarded)")
 
 	cfg.RulesPerPolicy = def.RulesPerPolicy
 	cfg.PeersPerRule = def.PeersPerRule

@@ -11,9 +11,10 @@ import (
 )
 
 // RenderParallel is equivalent to RenderBasic but spreads per-pod rendering
-// across workers goroutines. workers <= 0 defaults to runtime.GOMAXPROCS(0).
-// Output tuple order matches RenderBasic exactly.
-func RenderParallel(in *Input, workers int) (store.Store, error) {
+// across workers goroutines, writing the result into s. workers <= 0
+// defaults to runtime.GOMAXPROCS(0). Output tuple order matches RenderBasic
+// exactly.
+func RenderParallel(in *Input, s store.Store, workers int) error {
 	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(in)
 
 	if workers <= 0 {
@@ -51,13 +52,12 @@ func RenderParallel(in *Input, workers int) (store.Store, error) {
 
 	for _, err := range errs {
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	tupleStore := store.NewStore(0)
 	for _, podTuples := range results {
-		tupleStore.AddAll(podTuples)
+		s.AddAll(podTuples)
 	}
-	return tupleStore, nil
+	return nil
 }

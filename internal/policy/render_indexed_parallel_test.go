@@ -19,17 +19,11 @@ func TestRenderIndexedParallel_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
+	want := renderBasic(t, in)
 
 	for _, workers := range []int{0, 1, 2, 3, 8, 64} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderIndexedParallel(in, workers)
-			if err != nil {
-				t.Fatalf("RenderIndexedParallel: %v", err)
-			}
+			got := renderIndexedParallel(t, in, workers)
 			assertTuples(t, got.List(), want.List())
 		})
 	}
@@ -67,17 +61,11 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 	policies := []*networkingv1.NetworkPolicy{np}
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
+	want := renderBasic(t, in)
 
 	for _, workers := range []int{0, 1, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderIndexedParallel(in, workers)
-			if err != nil {
-				t.Fatalf("RenderIndexedParallel: %v", err)
-			}
+			got := renderIndexedParallel(t, in, workers)
 			assertTuples(t, got.List(), want.List())
 		})
 	}
@@ -85,10 +73,7 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 
 func TestRenderIndexedParallel_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	store, err := RenderIndexedParallel(in, 4)
-	if err != nil {
-		t.Fatalf("RenderIndexedParallel: %v", err)
-	}
+	store := renderIndexedParallel(t, in, 4)
 	if store.Len() != 0 {
 		t.Fatalf("expected no tuples, got %+v", store.List())
 	}

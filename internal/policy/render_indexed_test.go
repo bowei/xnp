@@ -18,23 +18,14 @@ func TestRenderIndexed_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
-	got, err := RenderIndexed(in)
-	if err != nil {
-		t.Fatalf("RenderIndexed: %v", err)
-	}
+	want := renderBasic(t, in)
+	got := renderIndexed(t, in)
 	assertTuples(t, got.List(), want.List())
 }
 
 func TestRenderIndexed_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	store, err := RenderIndexed(in)
-	if err != nil {
-		t.Fatalf("RenderIndexed: %v", err)
-	}
+	store := renderIndexed(t, in)
 	if store.Len() != 0 {
 		t.Fatalf("expected no tuples, got %+v", store.List())
 	}
@@ -115,14 +106,8 @@ func TestRenderIndexed_MatchExpressions(t *testing.T) {
 	policies, pods, namespaces := buildExpressionFixture()
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
-	got, err := RenderIndexed(in)
-	if err != nil {
-		t.Fatalf("RenderIndexed: %v", err)
-	}
+	want := renderBasic(t, in)
+	got := renderIndexed(t, in)
 	assertTuples(t, got.List(), want.List())
 }
 
@@ -158,13 +143,7 @@ func TestRenderIndexed_ReplicatedLabelSets(t *testing.T) {
 	policies := []*networkingv1.NetworkPolicy{np}
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
-	got, err := RenderIndexed(in)
-	if err != nil {
-		t.Fatalf("RenderIndexed: %v", err)
-	}
+	want := renderBasic(t, in)
+	got := renderIndexed(t, in)
 	assertTuples(t, got.List(), want.List())
 }

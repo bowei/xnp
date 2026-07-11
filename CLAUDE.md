@@ -52,9 +52,11 @@ bin/scaletest render --renderer=indexed-parallel --nodes=500 --pods-per-node=200
 `--pods-per-node`, `--ns`, `--policies-per-ns`, `--label-cardinality` (lower = broader selector
 matches), `--seed` (generation is deterministic per seed), `--workers` (for the parallel renderers).
 
-`hack/profile.sh [pprof-mode] [-- scaletest-render-flags...]` builds `bin/scaletest`, runs it with
-`--cpuprofile`, and opens the result in `go tool pprof` (default `-top`; use `-http=:0` for the
-interactive UI). E.g. `hack/profile.sh -http=:0 -- --renderer=parallel --nodes=500 --pods-per-node=200`.
+`hack/profile.sh [-mem] [pprof-mode] [-- scaletest-render-flags...]` builds `bin/scaletest`, runs it
+with `--cpuprofile` (or `--memprofile` if `-mem` is passed), and opens the result in `go tool pprof`
+(default `-top`; use `-http=:0` for the interactive UI). E.g.
+`hack/profile.sh -http=:0 -- --renderer=parallel --nodes=500 --pods-per-node=200` for CPU, or
+`hack/profile.sh -mem -- --renderer=indexed --nodes=500 --pods-per-node=200` for a heap profile.
 
 ## Architecture: internal/policy
 

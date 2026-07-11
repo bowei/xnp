@@ -31,10 +31,10 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(in *Input, workers int) (store.Store, error) {
+func RenderIndexedParallel(in *Input, s store.Store, workers int) error {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if workers <= 0 {
@@ -45,10 +45,10 @@ func RenderIndexedParallel(in *Input, workers int) (store.Store, error) {
 
 	templates, err := computeGroupTemplatesParallel(st, groups, workers)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return materializeTuplesParallel(in, st.sortedPods, groupIndex, templates, workers)
+	return materializeTuplesParallel(in, st.sortedPods, groupIndex, templates, s, workers)
 }
 
 // distinctGroups returns the (namespace, identity) groups sortedPods touch,
@@ -129,10 +129,11 @@ func materializeTuplesParallel(
 	sortedPods []repr.Pod,
 	groupIndex []int,
 	templates []*groupTemplates,
+	s store.Store,
 	workers int,
-) (store.Store, error) {
+) error {
 	if len(sortedPods) == 0 {
-		return store.NewStore(0), nil
+		return nil
 	}
 	if workers > len(sortedPods) {
 		workers = len(sortedPods)
@@ -151,8 +152,7 @@ func materializeTuplesParallel(
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	tupleStore := store.NewStore(offsets[len(sortedPods)])
-	tuples := tupleStore.Reserve(offsets[len(sortedPods)])
+	tuples := s.Reserve(offsets[len(sortedPods)])
 	errs := make([]error, len(sortedPods))
 
 	var next atomic.Int64
@@ -201,8 +201,8 @@ func materializeTuplesParallel(
 
 	for _, err := range errs {
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return tupleStore, nil
+	return nil
 }

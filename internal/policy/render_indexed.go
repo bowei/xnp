@@ -37,10 +37,10 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input) (store.Store, error) {
+func RenderIndexed(in *Input, s store.Store) error {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	groupCache := map[groupKey]*groupTemplates{}
@@ -54,7 +54,7 @@ func RenderIndexed(in *Input) (store.Store, error) {
 		if !ok {
 			tmpl, err = st.groupTemplatesFor(key)
 			if err != nil {
-				return nil, fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
+				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			groupCache[key] = tmpl
 		}
@@ -69,8 +69,7 @@ func RenderIndexed(in *Input) (store.Store, error) {
 		offsets[i+1] = offsets[i] + (len(tmpl.ingress)+len(tmpl.egress))*n
 	}
 
-	tupleStore := store.NewStore(offsets[len(st.sortedPods)])
-	tuples := tupleStore.Reserve(offsets[len(st.sortedPods)])
+	tuples := s.Reserve(offsets[len(st.sortedPods)])
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
@@ -79,20 +78,20 @@ func RenderIndexed(in *Input) (store.Store, error) {
 		for _, tt := range tmpl.ingress {
 			written, err := writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
-				return nil, fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
+				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			n += written
 		}
 		for _, tt := range tmpl.egress {
 			written, err := writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
-				return nil, fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
+				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			n += written
 		}
 	}
 
-	return tupleStore, nil
+	return nil
 }
 
 // groupKey identifies a (namespace, identity) group: every pod sharing a key

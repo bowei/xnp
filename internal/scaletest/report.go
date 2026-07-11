@@ -29,6 +29,9 @@ type Report struct {
 	ConvertDuration  time.Duration
 	RenderDuration   time.Duration
 
+	GenerateAlloc AllocSnapshot
+	ConvertAlloc  AllocSnapshot
+
 	Mem MemStats
 }
 
@@ -36,7 +39,7 @@ type Report struct {
 // Store policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
+func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur time.Duration, genAlloc, convAlloc AllocSnapshot, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {
@@ -61,6 +64,8 @@ func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur 
 		GenerateDuration: genDur,
 		ConvertDuration:  convDur,
 		RenderDuration:   renderDur,
+		GenerateAlloc:    genAlloc,
+		ConvertAlloc:     convAlloc,
 		Mem:              mem,
 	}
 	r.TuplesPerPod = statsOf(tuplesPerPod, len(tc.Pods))
@@ -101,8 +106,8 @@ func (r *Report) String() string {
 	fmt.Fprintf(&b, "tuples:      %d\n", r.Tuples)
 	fmt.Fprintf(&b, "tuples/pod:  min=%d max=%d avg=%.1f\n", r.TuplesPerPod.Min, r.TuplesPerPod.Max, r.TuplesPerPod.Avg)
 	fmt.Fprintf(&b, "tuples/node: min=%d max=%d avg=%.1f\n", r.TuplesPerNode.Min, r.TuplesPerNode.Max, r.TuplesPerNode.Avg)
-	fmt.Fprintf(&b, "generate:    %s\n", r.GenerateDuration)
-	fmt.Fprintf(&b, "convert:     %s\n", r.ConvertDuration)
+	fmt.Fprintf(&b, "generate:    %s  alloc=%s (%d allocs)\n", r.GenerateDuration, formatBytes(r.GenerateAlloc.Bytes), r.GenerateAlloc.Mallocs)
+	fmt.Fprintf(&b, "convert:     %s  alloc=%s (%d allocs)\n", r.ConvertDuration, formatBytes(r.ConvertAlloc.Bytes), r.ConvertAlloc.Mallocs)
 	fmt.Fprintf(&b, "render:      %s\n", r.RenderDuration)
 	fmt.Fprintf(&b, "heap alloc:  start=%s min=%s max=%s end=%s\n",
 		formatBytes(r.Mem.Start), formatBytes(r.Mem.Min), formatBytes(r.Mem.Max), formatBytes(r.Mem.End))

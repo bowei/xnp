@@ -6,13 +6,6 @@ type impl struct {
 	tuples []tuple.Tuple
 }
 
-// NewStore returns an empty Store, sized for capacityHint tuples up front.
-// capacityHint may be 0 (grown incrementally via AddAll) or the exact final
-// size (immediately followed by a single Reserve of that size).
-func NewStore(capacityHint int) Store {
-	return &impl{tuples: make([]tuple.Tuple, 0, capacityHint)}
-}
-
 func (s *impl) Reserve(n int) []tuple.Tuple {
 	start := len(s.tuples)
 	s.tuples = append(s.tuples, make([]tuple.Tuple, n)...)

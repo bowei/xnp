@@ -74,17 +74,11 @@ func TestRenderParallel_MatchesBasic(t *testing.T) {
 	policies, pods, namespaces := buildRandomFixture(1)
 	in := mustInput(t, policies, pods, namespaces)
 
-	want, err := RenderBasic(in)
-	if err != nil {
-		t.Fatalf("RenderBasic: %v", err)
-	}
+	want := renderBasic(t, in)
 
 	for _, workers := range []int{0, 1, 2, 3, 8, 64} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
-			got, err := RenderParallel(in, workers)
-			if err != nil {
-				t.Fatalf("RenderParallel: %v", err)
-			}
+			got := renderParallel(t, in, workers)
 			assertTuples(t, got.List(), want.List())
 		})
 	}
@@ -92,10 +86,7 @@ func TestRenderParallel_MatchesBasic(t *testing.T) {
 
 func TestRenderParallel_Empty(t *testing.T) {
 	in := mustInput(t, nil, nil, nil)
-	store, err := RenderParallel(in, 4)
-	if err != nil {
-		t.Fatalf("RenderParallel: %v", err)
-	}
+	store := renderParallel(t, in, 4)
 	if store.Len() != 0 {
 		t.Fatalf("expected no tuples, got %+v", store.List())
 	}
