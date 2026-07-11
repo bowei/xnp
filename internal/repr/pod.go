@@ -13,6 +13,8 @@ type Pod struct {
 	Name      string
 	Labels    LabelSet
 	IPs       []netip.Addr
+
+	Original *corev1.Pod
 }
 
 // NewPod converts pod into repr form, interning its namespace/labels via
@@ -29,6 +31,7 @@ func NewPod(pod *corev1.Pod, tbl *SymbolTable) (Pod, error) {
 		Name:      pod.Name,
 		Labels:    NewLabelSet(pod.Labels, tbl),
 		IPs:       ips,
+		Original:  pod,
 	}, nil
 }
 

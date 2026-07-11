@@ -18,6 +18,8 @@ type NetworkPolicy struct {
 	PolicyTypes []networkingv1.PolicyType
 	Ingress     []Rule
 	Egress      []Rule
+
+	Original *networkingv1.NetworkPolicy
 }
 
 // NewNetworkPolicy converts np into repr form, interning its namespace via
@@ -56,6 +58,7 @@ func NewNetworkPolicy(np *networkingv1.NetworkPolicy, tbl *SymbolTable) (Network
 		PolicyTypes: np.Spec.PolicyTypes,
 		Ingress:     ingress,
 		Egress:      egress,
+		Original:    np,
 	}, nil
 }
 
