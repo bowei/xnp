@@ -36,7 +36,7 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input) (*tuple.Store, error) {
+func RenderIndexed(in *Input) (tuple.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err

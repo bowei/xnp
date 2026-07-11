@@ -37,7 +37,7 @@ type Report struct {
 // Store policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, store *tuple.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
+func Summarize(tc *TestCase, store tuple.Store, genDur, convDur, renderDur time.Duration, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {

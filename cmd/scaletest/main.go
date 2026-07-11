@@ -81,7 +81,7 @@ func renderCmd() *cobra.Command {
 			}
 
 			start = time.Now()
-			var store *tuple.Store
+			var store tuple.Store
 			switch renderer {
 			case "parallel":
 				store, err = policy.RenderParallel(in, workers)

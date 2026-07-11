@@ -30,7 +30,7 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(in *Input, workers int) (*tuple.Store, error) {
+func RenderIndexedParallel(in *Input, workers int) (tuple.Store, error) {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 // slice and a final pass concatenating all of them, which briefly doubles
 // peak memory (both copies of ~25M tuples live at once) and, at that size,
 // loses more to the resulting GC pressure than the parallel fan-out saves.
-func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) (*tuple.Store, error) {
+func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []int, templates []*groupTemplates, workers int) (tuple.Store, error) {
 	if len(sortedPods) == 0 {
 		return tuple.NewStore(0), nil
 	}

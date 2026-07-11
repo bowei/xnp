@@ -9,7 +9,7 @@ import (
 // RenderBasic compiles in's policies into the Tuples that should be enforced
 // at each of in's pods. in.Namespaces supplies the label data needed to
 // resolve namespaceSelector peers.
-func RenderBasic(in *Input) (*tuple.Store, error) {
+func RenderBasic(in *Input) (tuple.Store, error) {
 	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(in)
 
 	store := tuple.NewStore(0)
