@@ -170,8 +170,8 @@ func TestRender_PodSelectorPeer(t *testing.T) {
 	}
 
 	want := []tuple.Tuple{
-		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
-		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.2", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: tuple.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "10.0.0.3", Dest: "10.0.0.1", Port: new(int32(80)), Protocol: tuple.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}
@@ -280,7 +280,7 @@ func TestRender_PortRange(t *testing.T) {
 	assertIndexedMatchesBasic(t, in, tuples)
 
 	want := []tuple.Tuple{
-		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: new(int32(8000)), EndPort: new(int32(8080)), Protocol: corev1.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
+		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Port: new(int32(8000)), EndPort: new(int32(8080)), Protocol: tuple.ProtocolTCP, Direction: tuple.DirectionIngress, Verdict: tuple.VerdictAllow},
 		{Pod: nsName("ns", "web"), Src: "", Dest: "10.0.0.1", Direction: tuple.DirectionIngress, Verdict: tuple.VerdictDeny},
 		{Pod: nsName("ns", "web"), Src: "10.0.0.1", Dest: "", Direction: tuple.DirectionEgress, Verdict: tuple.VerdictAllow},
 	}

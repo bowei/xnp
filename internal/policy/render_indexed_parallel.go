@@ -146,6 +146,7 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 
 	store := tuple.NewStore(offsets[len(sortedPods)])
 	tuples := store.Reserve(offsets[len(sortedPods)])
+	errs := make([]error, len(sortedPods))
 
 	var next atomic.Int64
 	var wg sync.WaitGroup
@@ -164,16 +165,37 @@ func materializeTuplesParallel(in *Input, sortedPods []repr.Pod, groupIndex []in
 
 				dst := tuples[offsets[i]:offsets[i+1]]
 				n := 0
+				var err error
 				for _, tt := range tmpl.ingress {
-					n += writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+					var written int
+					written, err = writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+					if err != nil {
+						break
+					}
+					n += written
 				}
-				for _, tt := range tmpl.egress {
-					n += writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+				if err == nil {
+					for _, tt := range tmpl.egress {
+						var written int
+						written, err = writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+						if err != nil {
+							break
+						}
+						n += written
+					}
+				}
+				if err != nil {
+					errs[i] = fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 				}
 			}
 		}()
 	}
 	wg.Wait()
 
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
 	return store, nil
 }

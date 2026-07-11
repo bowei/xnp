@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/netip"
 
-	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 )
 
@@ -27,29 +26,6 @@ func newKVPair(key, value StringID) kvPair {
 
 func (p kvPair) key() StringID   { return StringID(p >> 32) }
 func (p kvPair) value() StringID { return StringID(uint32(p)) }
-
-// Protocol is corev1.Protocol packed into a byte instead of a string; the
-// NetworkPolicy API only ever produces one of the three values below.
-type Protocol uint8
-
-const (
-	ProtocolTCP Protocol = iota
-	ProtocolUDP
-	ProtocolSCTP
-)
-
-func protocolFromK8s(p corev1.Protocol) (Protocol, error) {
-	switch p {
-	case corev1.ProtocolTCP:
-		return ProtocolTCP, nil
-	case corev1.ProtocolUDP:
-		return ProtocolUDP, nil
-	case corev1.ProtocolSCTP:
-		return ProtocolSCTP, nil
-	default:
-		return 0, fmt.Errorf("unsupported protocol %q", p)
-	}
-}
 
 // IPBlock is the memory-efficient mirror of a networkingv1.IPBlock.
 //

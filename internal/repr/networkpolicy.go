@@ -3,6 +3,7 @@ package repr
 import (
 	"fmt"
 
+	"github.com/bowei/xnp/internal/tuple"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -64,7 +65,7 @@ func NewNetworkPolicy(np *networkingv1.NetworkPolicy, tbl *SymbolTable) (Network
 
 // Port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
 type Port struct {
-	Protocol Protocol
+	Protocol tuple.Protocol
 	Port     *int32
 	EndPort  *int32
 }
@@ -77,7 +78,7 @@ func newPort(p networkingv1.NetworkPolicyPort) (Port, error) {
 	if p.Protocol != nil {
 		proto = *p.Protocol
 	}
-	protocol, err := protocolFromK8s(proto)
+	protocol, err := tuple.ProtocolFromK8s(proto)
 	if err != nil {
 		return Port{}, err
 	}

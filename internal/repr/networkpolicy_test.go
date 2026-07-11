@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/bowei/xnp/internal/tuple"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,10 +73,10 @@ func TestNewNetworkPolicy(t *testing.T) {
 	if len(rule.Ports) != 2 {
 		t.Fatalf("Ports = %d, want 2", len(rule.Ports))
 	}
-	if rule.Ports[0].Protocol != ProtocolTCP || *rule.Ports[0].Port != 80 {
+	if rule.Ports[0].Protocol != tuple.ProtocolTCP || *rule.Ports[0].Port != 80 {
 		t.Errorf("Ports[0] = %+v, want TCP/80 (protocol defaults to TCP when unset)", rule.Ports[0])
 	}
-	if rule.Ports[1].Protocol != ProtocolUDP || *rule.Ports[1].Port != 53 || *rule.Ports[1].EndPort != 54 {
+	if rule.Ports[1].Protocol != tuple.ProtocolUDP || *rule.Ports[1].Port != 53 || *rule.Ports[1].EndPort != 54 {
 		t.Errorf("Ports[1] = %+v, want UDP/53-54", rule.Ports[1])
 	}
 }

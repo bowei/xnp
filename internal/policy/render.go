@@ -35,11 +35,11 @@ type portEntry struct {
 
 // protocolToK8s converts repr's packed Protocol back to the string form
 // Tuple carries, at the render output boundary.
-func protocolToK8s(p repr.Protocol) corev1.Protocol {
+func protocolToK8s(p tuple.Protocol) corev1.Protocol {
 	switch p {
-	case repr.ProtocolUDP:
+	case tuple.ProtocolUDP:
 		return corev1.ProtocolUDP
-	case repr.ProtocolSCTP:
+	case tuple.ProtocolSCTP:
 		return corev1.ProtocolSCTP
 	default:
 		return corev1.ProtocolTCP
@@ -124,7 +124,11 @@ func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[r
 	var tuples []tuple.Tuple
 
 	if len(ingressIdx) == 0 {
-		tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
+		ts, err := makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})
+		if err != nil {
+			return nil, err
+		}
+		tuples = append(tuples, ts...)
 	} else {
 		for _, idx := range ingressIdx {
 			np := in.Policies[idx]
@@ -136,16 +140,28 @@ func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[r
 				ports := resolvePorts(rule.Ports)
 				for _, peer := range peers {
 					for _, port := range ports {
-						tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictAllow, peer, port)...)
+						ts, err := makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictAllow, peer, port)
+						if err != nil {
+							return nil, fmt.Errorf("policy %s ingress rule: %w", np.Name, err)
+						}
+						tuples = append(tuples, ts...)
 					}
 				}
 			}
 		}
-		tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictDeny, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
+		ts, err := makeTuples(podName, ownIPs, tuple.DirectionIngress, tuple.VerdictDeny, peerEntry{wildcard: true}, portEntry{wildcard: true})
+		if err != nil {
+			return nil, err
+		}
+		tuples = append(tuples, ts...)
 	}
 
 	if len(egressIdx) == 0 {
-		tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
+		ts, err := makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictAllow, peerEntry{wildcard: true}, portEntry{wildcard: true})
+		if err != nil {
+			return nil, err
+		}
+		tuples = append(tuples, ts...)
 	} else {
 		for _, idx := range egressIdx {
 			np := in.Policies[idx]
@@ -157,12 +173,20 @@ func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[r
 				ports := resolvePorts(rule.Ports)
 				for _, peer := range peers {
 					for _, port := range ports {
-						tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictAllow, peer, port)...)
+						ts, err := makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictAllow, peer, port)
+						if err != nil {
+							return nil, fmt.Errorf("policy %s egress rule: %w", np.Name, err)
+						}
+						tuples = append(tuples, ts...)
 					}
 				}
 			}
 		}
-		tuples = append(tuples, makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictDeny, peerEntry{wildcard: true}, portEntry{wildcard: true})...)
+		ts, err := makeTuples(podName, ownIPs, tuple.DirectionEgress, tuple.VerdictDeny, peerEntry{wildcard: true}, portEntry{wildcard: true})
+		if err != nil {
+			return nil, err
+		}
+		tuples = append(tuples, ts...)
 	}
 
 	return tuples, nil
@@ -273,14 +297,16 @@ func resolvePorts(ports []repr.Port) []portEntry {
 // up front (see doc comment on RenderIndexed for why that matters at scale);
 // RenderIndexed and RenderIndexedParallel call writeTuples directly into a
 // preallocated result slice instead, to skip this allocation entirely.
-func makeTuples(pod types.NamespacedName, ownIPs []string, dir tuple.Direction, verdict tuple.Verdict, peer peerEntry, port portEntry) []tuple.Tuple {
+func makeTuples(pod types.NamespacedName, ownIPs []string, dir tuple.Direction, verdict tuple.Verdict, peer peerEntry, port portEntry) ([]tuple.Tuple, error) {
 	n := len(ownIPs)
 	if n == 0 {
 		n = 1
 	}
 	tuples := make([]tuple.Tuple, n)
-	writeTuples(tuples, pod, ownIPs, dir, verdict, peer, port)
-	return tuples
+	if _, err := writeTuples(tuples, pod, ownIPs, dir, verdict, peer, port); err != nil {
+		return nil, err
+	}
+	return tuples, nil
 }
 
 // writeTuples is makeTuples' non-allocating counterpart: it writes directly
@@ -288,16 +314,28 @@ func makeTuples(pod types.NamespacedName, ownIPs []string, dir tuple.Direction, 
 // count written, so a caller that already knows its total output size can
 // fill one preallocated slice instead of allocating and copying a temporary
 // slice per call.
-func writeTuples(dst []tuple.Tuple, pod types.NamespacedName, ownIPs []string, dir tuple.Direction, verdict tuple.Verdict, peer peerEntry, port portEntry) int {
+func writeTuples(
+	dst []tuple.Tuple,
+	pod types.NamespacedName,
+	ownIPs []string,
+	dir tuple.Direction,
+	verdict tuple.Verdict,
+	peer peerEntry,
+	port portEntry,
+) (int, error) {
 	peerAddr := ""
 	if !peer.wildcard {
 		peerAddr = peer.addr
 	}
 
-	var protocol corev1.Protocol
+	var protocol tuple.Protocol
 	var portPtr, endPortPtr *int32
 	if !port.wildcard {
-		protocol = port.protocol
+		var err error
+		protocol, err = tuple.ProtocolFromK8s(port.protocol)
+		if err != nil {
+			return 0, err
+		}
 		portPtr = port.port
 		endPortPtr = port.endPort
 	}
@@ -325,5 +363,5 @@ func writeTuples(dst []tuple.Tuple, pod types.NamespacedName, ownIPs []string, d
 		}
 		dst[i] = t
 	}
-	return len(ips)
+	return len(ips), nil
 }
