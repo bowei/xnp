@@ -2,14 +2,14 @@ BIN_DIR := bin
 TOOLS_DIR := tools
 GOLANGCI_LINT := $(BIN_DIR)/golangci-lint
 
-.PHONY: all build build-xpn build-scaletest vet lint test check clean
+.PHONY: all build build-xnp build-scaletest vet lint test check clean
 
 all: build
 
-build: build-xpn build-scaletest
+build: build-xnp build-scaletest
 
-build-xpn:
-	go build -o $(BIN_DIR)/xpn ./cmd/xpn
+build-xnp:
+	go build -o $(BIN_DIR)/xnp ./cmd/xnp
 
 build-scaletest:
 	go build -o $(BIN_DIR)/scaletest ./cmd/scaletest

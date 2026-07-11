@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`xpn` is an implementation of Kubernetes NetworkPolicy targeted at high scale. The architecture
+`xnp` is an implementation of Kubernetes NetworkPolicy targeted at high scale. The architecture
 pre-resolves policy in a central control plane and ships a compressed list of simple rules to a
 lightweight per-node agent, rather than having every node re-evaluate full policy/selector logic.
 
@@ -15,14 +15,14 @@ to a flat list of tuples:
 (pod, src, dest, port, protocol, direction, verdict)
 ```
 
-`cmd/xpn` is the intended server/client binary (`xpn server` / `xpn client`) but is currently a stub
+`cmd/xnp` is the intended server/client binary (`xnp server` / `xnp client`) but is currently a stub
 (`func main() {}`). Almost all real logic lives in `internal/policy` (the renderer) and
 `internal/scaletest` (synthetic load generation for exercising the renderer).
 
 ## Commands
 
 ```
-make build   # builds bin/xpn and bin/scaletest
+make build   # builds bin/xnp and bin/scaletest
 make vet     # go vet ./...
 make lint    # golangci-lint run (builds bin/golangci-lint from tools/go.mod first time)
 make test    # go test ./...

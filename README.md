@@ -1,8 +1,8 @@
 # README
 
-xpn is an implementation of Kubernetes Network Policy that is targeted for high scale.
+xnp is an implementation of Kubernetes Network Policy that is targeted for high scale.
 
-The key architectural design in `xpn` is to prebake as much of resolution of policies
+The key architectural design in `xnp` is to prebake as much of resolution of policies
 in a central horizontally-scalable control plane that then sends a highly compressed list of simple rules to be consumed by a light-weight agent that operates on simple network filtering rules on each individual Kubernetes Node.
 
 ## Network policy computation
@@ -34,8 +34,8 @@ Use golang cobra for command parsing.
 
 ```
 # Run centralized policy renderer.
-$ xpn server
+$ xnp server
 
 # Run client that will receive the policies from the server.
-$ xpn client
+$ xnp client
 ```

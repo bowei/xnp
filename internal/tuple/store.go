@@ -5,7 +5,7 @@ package tuple
 // RenderBasic/RenderParallel, or a single exact-size preallocation written
 // into directly, including concurrently by RenderIndexedParallel's worker
 // pool) and how they're consumed downstream (report summarization today; a
-// future xpn server's storage/shipping path later) without either side
+// future xnp server's storage/shipping path later) without either side
 // depending on the other's representation.
 type Store struct {
 	tuples []Tuple
