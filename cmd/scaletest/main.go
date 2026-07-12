@@ -58,9 +58,9 @@ func renderCmd() *cobra.Command {
 		Short: "Generate a synthetic namespace/pod/policy set and render it",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch renderer {
-			case "basic", "parallel", "indexed", "indexed-parallel":
+			case "basic", "parallel", "indexed", "indexed-parallel", "compact":
 			default:
-				return fmt.Errorf("--renderer must be one of %q, %q, %q, %q, got %q", "basic", "parallel", "indexed", "indexed-parallel", renderer)
+				return fmt.Errorf("--renderer must be one of %q, %q, %q, %q, %q, got %q", "basic", "parallel", "indexed", "indexed-parallel", "compact", renderer)
 			}
 
 			if cpuProfile != "" {
@@ -97,6 +97,24 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("convert: %w", err)
 			}
 
+			if renderer == "compact" {
+				start = time.Now()
+				out, err := policy.RenderCompact(in)
+				renderDur := time.Since(start)
+				mem := stopMem()
+				if err != nil {
+					return fmt.Errorf("render: %w", err)
+				}
+
+				if err := writeMemProfile(memProfile); err != nil {
+					return err
+				}
+
+				report := scaletest.SummarizeCompact(tc, out, genDur, convDur, renderDur, mem)
+				_, err = fmt.Fprint(cmd.OutOrStdout(), report.String())
+				return err
+			}
+
 			var tupleStore store.Store
 			if nullStore {
 				tupleStore = store.NewNull()
@@ -121,16 +139,8 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			if memProfile != "" {
-				f, err := os.Create(memProfile)
-				if err != nil {
-					return fmt.Errorf("create mem profile: %w", err)
-				}
-				defer func() { _ = f.Close() }()
-				runtime.GC()
-				if err := pprof.WriteHeapProfile(f); err != nil {
-					return fmt.Errorf("write mem profile: %w", err)
-				}
+			if err := writeMemProfile(memProfile); err != nil {
+				return err
 			}
 
 			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, mem)
@@ -150,7 +160,7 @@ func renderCmd() *cobra.Command {
 	flags.Int64Var(&cfg.Seed, "seed", def.Seed, "random seed; the same seed always generates the same test case")
 	flags.IntVar(&cfg.LabelCardinality, "label-cardinality", def.LabelCardinality, "distinct label values pods/namespaces are drawn from (lower = broader selector matches)")
 	flags.StringVar(&cfg.PodCIDR, "pod-cidr", def.PodCIDR, "CIDR range pod IPs are allocated from")
-	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic", "parallel", "indexed", or "indexed-parallel"`)
+	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic", "parallel", "indexed", "indexed-parallel", or "compact" (reports template-dictionary/node-chunk sizing instead of tuple counts; ignores --null-store)`)
 	flags.IntVar(&workers, "workers", 0, "worker goroutines for --renderer=parallel or --renderer=indexed-parallel (<=0 means runtime.GOMAXPROCS(0))")
 	flags.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU profile to this file")
 	flags.StringVar(&memProfile, "memprofile", "", "write a heap profile to this file after rendering")
@@ -164,4 +174,22 @@ func renderCmd() *cobra.Command {
 	cfg.IPBlockFraction = def.IPBlockFraction
 
 	return cmd
+}
+
+// writeMemProfile writes a heap profile to path after forcing a GC, unless
+// path is empty.
+func writeMemProfile(path string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("create mem profile: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	runtime.GC()
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		return fmt.Errorf("write mem profile: %w", err)
+	}
+	return nil
 }
