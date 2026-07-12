@@ -2,7 +2,9 @@ package policy
 
 import (
 	"fmt"
+	"log/slog"
 	"slices"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -120,6 +122,11 @@ type indexedState struct {
 }
 
 func prepareIndexedRender(in *Input) (*indexedState, error) {
+	startTs := time.Now()
+	defer func() {
+		slog.Info("prepareIndexedRender", "duration", time.Since(startTs))
+	}()
+
 	sortedPods, _, policiesByNamespace := prepareRender(in)
 
 	registry := repr.NewSelectorRegistry(in.Table)
@@ -172,7 +179,7 @@ func prepareIndexedRender(in *Input) (*indexedState, error) {
 
 	nsIndex := repr.NewNamespaceSelectorCache(in.Namespaces, in.Table)
 
-	return &indexedState{
+	st := &indexedState{
 		in:                  in,
 		sortedPods:          sortedPods,
 		podIdentity:         podIdentity,
@@ -183,7 +190,33 @@ func prepareIndexedRender(in *Input) (*indexedState, error) {
 		identitiesByNS:      identitiesByNS,
 		podsByNS:            podsByNS,
 		nsIndex:             nsIndex,
-	}, nil
+	}
+	logIndexedStateStats(st, index.Stats())
+	return st, nil
+}
+
+// logIndexedStateStats logs the size of every structure prepareIndexedRender
+// builds up front — not just the inverted index — so both RenderIndexed and
+// RenderIndexedParallel (which share prepareIndexedRender) get a full
+// picture of the working set a render allocated, at Debug level.
+func logIndexedStateStats(st *indexedState, invStats repr.InvertedIndexStats) {
+	slog.Debug("built inverted index",
+		"selectors", invStats.Selectors,
+		"exactEntries", invStats.ExactEntries,
+		"keyEntries", invStats.KeyEntries,
+		"scanAlways", invStats.ScanAlways,
+	)
+	slog.Debug("built pod identities",
+		"pods", len(st.sortedPods),
+		"identities", len(st.matchedByIdentity),
+	)
+	slog.Debug("built namespace pod index",
+		"namespaces", len(st.identitiesByNS),
+		"policyNamespaces", len(st.policiesByNamespace),
+	)
+	slog.Debug("built namespace selector cache",
+		"namespaces", len(st.in.Namespaces),
+	)
 }
 
 func (st *indexedState) groupTemplatesFor(key groupKey) (*groupTemplates, error) {

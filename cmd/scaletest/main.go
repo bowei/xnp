@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -24,10 +25,21 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
+	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "scaletest",
 		Short: "Generate and render synthetic network policy scale tests",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			level := slog.LevelInfo
+			if verbose {
+				level = slog.LevelDebug
+			}
+			// Logs go to stderr, keeping stdout free for the report output
+			// that renderCmd's RunE prints.
+			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+		},
 	}
+	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug logging (e.g. inverted index stats)")
 	cmd.AddCommand(renderCmd())
 	return cmd
 }
@@ -109,11 +121,6 @@ func renderCmd() *cobra.Command {
 				return fmt.Errorf("render: %w", err)
 			}
 
-			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, mem)
-			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
-				return err
-			}
-
 			if memProfile != "" {
 				f, err := os.Create(memProfile)
 				if err != nil {
@@ -125,6 +132,12 @@ func renderCmd() *cobra.Command {
 					return fmt.Errorf("write mem profile: %w", err)
 				}
 			}
+
+			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, mem)
+			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
+				return err
+			}
+
 			return nil
 		},
 	}

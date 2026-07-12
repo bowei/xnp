@@ -355,6 +355,25 @@ func BuildInvertedIndex(compiled []CompiledSelector) *InvertedIndex {
 	return idx
 }
 
+// InvertedIndexStats describes the size of an InvertedIndex, for logging/
+// diagnostics rather than matching itself.
+type InvertedIndexStats struct {
+	Selectors    int // len(compiled): total selectors indexed
+	ExactEntries int // distinct key=value pairs in byExact
+	KeyEntries   int // distinct bare keys in byKey (Exists requirements)
+	ScanAlways   int // selectors with no positive requirement, checked on every match
+}
+
+// Stats reports idx's size.
+func (idx *InvertedIndex) Stats() InvertedIndexStats {
+	return InvertedIndexStats{
+		Selectors:    len(idx.compiled),
+		ExactEntries: len(idx.byExact),
+		KeyEntries:   len(idx.byKey),
+		ScanAlways:   len(idx.scanAlways),
+	}
+}
+
 // Match returns the IDs of every selector that matches ls: a counting join
 // over the inverted index (a selector matches iff all of its positive
 // requirements are found) followed by a residual check on the survivors.
