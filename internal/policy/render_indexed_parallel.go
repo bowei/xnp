@@ -170,12 +170,12 @@ func materializeTuplesParallel(
 				tmpl := templates[groupIndex[i]]
 				podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
 
-				dst := tuples[offsets[i]:offsets[i+1]]
+				dst := tuples.Slice(offsets[i], offsets[i+1])
 				n := 0
 				var err error
 				for _, tt := range tmpl.ingress {
 					var written int
-					written, err = writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+					written, err = writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 					if err != nil {
 						break
 					}
@@ -184,7 +184,7 @@ func materializeTuplesParallel(
 				if err == nil {
 					for _, tt := range tmpl.egress {
 						var written int
-						written, err = writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+						written, err = writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 						if err != nil {
 							break
 						}

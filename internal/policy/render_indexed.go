@@ -75,17 +75,17 @@ func RenderIndexed(in *Input, s store.Store) error {
 	for i, pod := range st.sortedPods {
 		tmpl := templates[i]
 		podName := types.NamespacedName{Namespace: in.Table.String(pod.Namespace), Name: pod.Name}
-		dst := tuples[offsets[i]:offsets[i+1]]
+		dst := tuples.Slice(offsets[i], offsets[i+1])
 		n := 0
 		for _, tt := range tmpl.ingress {
-			written, err := writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+			written, err := writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
 				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			n += written
 		}
 		for _, tt := range tmpl.egress {
-			written, err := writeTuples(dst[n:], podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+			written, err := writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
 				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}

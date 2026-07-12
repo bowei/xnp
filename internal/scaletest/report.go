@@ -50,9 +50,9 @@ func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur 
 
 	tuplesPerPod := make(map[types.NamespacedName]int, len(tc.Pods))
 	tuplesPerNode := make(map[string]int, len(nodes))
-	for _, t := range tupleStore.List() {
-		tuplesPerPod[t.Pod]++
-		tuplesPerNode[nodeOf[t.Pod]]++
+	for _, pod := range tupleStore.Pods() {
+		tuplesPerPod[pod]++
+		tuplesPerNode[nodeOf[pod]]++
 	}
 
 	r := &Report{

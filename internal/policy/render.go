@@ -302,20 +302,20 @@ func makeTuples(pod types.NamespacedName, ownIPs []string, dir tuple.Direction, 
 	if n == 0 {
 		n = 1
 	}
-	tuples := make([]tuple.Tuple, n)
-	if _, err := writeTuples(tuples, pod, ownIPs, dir, verdict, peer, port); err != nil {
+	cols := tuple.NewColumns(n)
+	if _, err := writeTuples(cols, pod, ownIPs, dir, verdict, peer, port); err != nil {
 		return nil, err
 	}
-	return tuples, nil
+	return cols.ToSlice(), nil
 }
 
 // writeTuples is makeTuples' non-allocating counterpart: it writes directly
 // into dst (which must have length >= max(len(ownIPs), 1)) and returns the
 // count written, so a caller that already knows its total output size can
-// fill one preallocated slice instead of allocating and copying a temporary
-// slice per call.
+// fill one preallocated Columns instead of allocating and copying a
+// temporary slice per call.
 func writeTuples(
-	dst []tuple.Tuple,
+	dst tuple.Columns,
 	pod types.NamespacedName,
 	ownIPs []string,
 	dir tuple.Direction,
@@ -348,20 +348,23 @@ func writeTuples(
 	}
 
 	for i, own := range ips {
-		t := tuple.Tuple{
-			Pod:       pod,
-			Port:      portPtr,
-			EndPort:   endPortPtr,
-			Protocol:  protocol,
-			Direction: dir,
-			Verdict:   verdict,
-		}
+		dst.Pod[i] = pod
 		if dir == tuple.DirectionIngress {
-			t.Src, t.Dest = peerAddr, own
+			dst.Src[i], dst.Dest[i] = peerAddr, own
 		} else {
-			t.Src, t.Dest = own, peerAddr
+			dst.Src[i], dst.Dest[i] = own, peerAddr
 		}
-		dst[i] = t
+		if portPtr != nil {
+			dst.Port[i] = *portPtr
+			dst.HasPort[i] = true
+		}
+		if endPortPtr != nil {
+			dst.EndPort[i] = *endPortPtr
+			dst.HasEndPort[i] = true
+		}
+		dst.Protocol[i] = protocol
+		dst.Direction[i] = dir
+		dst.Verdict[i] = verdict
 	}
 	return len(ips), nil
 }

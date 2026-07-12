@@ -1,6 +1,10 @@
 package store
 
-import "github.com/bowei/xnp/internal/tuple"
+import (
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/bowei/xnp/internal/tuple"
+)
 
 func NewNull() Store { return &null{} }
 
@@ -9,9 +13,9 @@ type null struct {
 	size int
 }
 
-func (s *null) Reserve(n int) []tuple.Tuple {
+func (s *null) Reserve(n int) tuple.Columns {
 	s.size += n
-	return make([]tuple.Tuple, n)
+	return tuple.NewColumns(n)
 }
 
 func (s *null) AddAll(ts []tuple.Tuple) {
@@ -23,6 +27,11 @@ func (s *null) Len() int {
 }
 
 func (s *null) List() []tuple.Tuple {
+	// This intentionally does not work.
+	return nil
+}
+
+func (s *null) Pods() []types.NamespacedName {
 	// This intentionally does not work.
 	return nil
 }
