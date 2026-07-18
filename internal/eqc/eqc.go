@@ -1,7 +1,5 @@
 package eqc
 
-import "slices"
-
 type Labeled interface {
 	ID() uint64
 	Namespace() NsID
@@ -14,14 +12,30 @@ type EqC struct {
 
 	partitions map[NsID]Partitions
 
-	labeSetIDs    map[LabelSetID]LabelSet
-	labelSetByKey map[string]LabelSetID
+	// nextLabelSetID is the source of new LabelSetIDs. The content of
+	// each interned LabelSet lives only in labelSetByKey's string keys
+	// (and, for groups currently non-empty, in their Partition.labels) —
+	// there is no separate id->LabelSet map, since nothing needs reverse
+	// lookup by id.
+	nextLabelSetID LabelSetID
+	labelSetByKey  map[string]LabelSetID
 
-	// locations tracks, per namespace, where each object currently
-	// lives (its partition and index within that partition's slice) so
+	// locations tracks where each (namespace, object ID) currently lives
+	// (its partition and index within that partition's slice) so
 	// Remove/Update can find and evict a single object in O(1) instead
-	// of scanning every partition/object.
-	locations map[NsID]map[uint64]objLoc
+	// of scanning every partition/object. Keyed by the (ns, id) pair
+	// rather than nested per-namespace maps — one flat map has less
+	// overhead than many small ones when there are many namespaces, and
+	// keying on the pair (not just id) preserves the property that the
+	// same object ID left behind in two namespaces (the documented
+	// caller-error case in Update) is tracked independently in each,
+	// rather than one clobbering the other's location and orphaning it.
+	locations map[locKey]objLoc
+}
+
+type locKey struct {
+	ns NsID
+	id uint64
 }
 
 // objLoc is where a single object lives within its namespace's
@@ -57,9 +71,8 @@ func New(relevant []KeyID) *EqC {
 		relevant:      append([]KeyID(nil), relevant...),
 		relevantSet:   newRelevantSet(relevant),
 		partitions:    map[NsID]Partitions{},
-		labeSetIDs:    map[LabelSetID]LabelSet{},
 		labelSetByKey: map[string]LabelSetID{},
-		locations:     map[NsID]map[uint64]objLoc{},
+		locations:     map[locKey]objLoc{},
 	}
 }
 
@@ -87,9 +100,11 @@ func (c *EqC) project(s LabelSet) LabelSet {
 // Add objects to the EqC, splitting the objects based on their
 // relevant Labels.
 func (c *EqC) Add(objects []Labeled) {
+	var keyBuf []byte
 	for _, o := range objects {
-		proj := c.project(o.Labels())
-		id := c.internLabelSet(proj)
+		labels := o.Labels()
+		keyBuf = labels.appendProjectKey(keyBuf[:0], c.relevantSet)
+		id, isNew := c.internKey(keyBuf)
 
 		ns := o.Namespace()
 		nsPartitions, ok := c.partitions[ns]
@@ -97,18 +112,18 @@ func (c *EqC) Add(objects []Labeled) {
 			nsPartitions = Partitions{}
 			c.partitions[ns] = nsPartitions
 		}
-		nsLocations, ok := c.locations[ns]
-		if !ok {
-			nsLocations = map[uint64]objLoc{}
-			c.locations[ns] = nsLocations
-		}
 
 		p := nsPartitions[id]
-		p.labels = proj
-		p.labelSetID = id
+		if isNew {
+			// Only the first object seen for this group needs to pay
+			// for materializing the projected LabelSet; every later
+			// object in the same group just reuses p.labels.
+			p.labels = c.project(labels)
+			p.labelSetID = id
+		}
 		p.objects = append(p.objects, o)
 		nsPartitions[id] = p
-		nsLocations[o.ID()] = objLoc{labelSetID: id, idx: len(p.objects) - 1}
+		c.locations[locKey{ns, o.ID()}] = objLoc{labelSetID: id, idx: len(p.objects) - 1}
 	}
 }
 
@@ -123,21 +138,15 @@ func (c *EqC) Add(objects []Labeled) {
 func (c *EqC) Update(objects []Labeled) {
 	for _, o := range objects {
 		ns := o.Namespace()
-		nsLocations, ok := c.locations[ns]
-		if !ok {
-			c.Add([]Labeled{o})
-			continue
-		}
-		loc, ok := nsLocations[o.ID()]
+		loc, ok := c.locations[locKey{ns, o.ID()}]
 		if !ok {
 			c.Add([]Labeled{o})
 			continue
 		}
 
-		newProj := c.project(o.Labels())
 		nsPartitions := c.partitions[ns]
 		p := nsPartitions[loc.labelSetID]
-		if slices.Equal(p.labels, newProj) {
+		if o.Labels().projectEquals(c.relevantSet, p.labels) {
 			p.objects[loc.idx] = o
 			nsPartitions[loc.labelSetID] = p
 			continue
@@ -155,11 +164,7 @@ func (c *EqC) Update(objects []Labeled) {
 func (c *EqC) Remove(objects []Labeled) {
 	for _, o := range objects {
 		ns := o.Namespace()
-		nsLocations, ok := c.locations[ns]
-		if !ok {
-			continue
-		}
-		loc, ok := nsLocations[o.ID()]
+		loc, ok := c.locations[locKey{ns, o.ID()}]
 		if !ok {
 			continue
 		}
@@ -173,21 +178,19 @@ func (c *EqC) Remove(objects []Labeled) {
 func (c *EqC) evict(ns NsID, id uint64, loc objLoc) {
 	nsPartitions := c.partitions[ns]
 	p := nsPartitions[loc.labelSetID]
-	nsLocations := c.locations[ns]
 
 	last := len(p.objects) - 1
 	if loc.idx != last {
 		p.objects[loc.idx] = p.objects[last]
-		nsLocations[p.objects[loc.idx].ID()] = objLoc{labelSetID: loc.labelSetID, idx: loc.idx}
+		c.locations[locKey{ns, p.objects[loc.idx].ID()}] = objLoc{labelSetID: loc.labelSetID, idx: loc.idx}
 	}
 	p.objects = p.objects[:last]
-	delete(nsLocations, id)
+	delete(c.locations, locKey{ns, id})
 
 	if len(p.objects) == 0 {
 		delete(nsPartitions, loc.labelSetID)
 		if len(nsPartitions) == 0 {
 			delete(c.partitions, ns)
-			delete(c.locations, ns)
 		}
 	} else {
 		nsPartitions[loc.labelSetID] = p
@@ -209,9 +212,9 @@ func (c *EqC) UpdateRelevant(labels []KeyID) {
 	c.relevant = append([]KeyID(nil), labels...)
 	c.relevantSet = newRelevantSet(labels)
 	c.partitions = map[NsID]Partitions{}
-	c.labeSetIDs = map[LabelSetID]LabelSet{}
+	c.nextLabelSetID = 0
 	c.labelSetByKey = map[string]LabelSetID{}
-	c.locations = map[NsID]map[uint64]objLoc{}
+	c.locations = map[locKey]objLoc{}
 	c.Add(all)
 }
 
@@ -233,17 +236,24 @@ func (c *EqC) findLabelSetID(ls LabelSet) (LabelSetID, bool) {
 	return id, ok
 }
 
-// internLabelSet returns the LabelSetID for ls's content, allocating a new
-// one the first time this exact (relevant-projected) label set is seen.
-// Identity is content-addressed, not namespace-scoped: two namespaces with
-// the same projected labels share a LabelSetID.
-func (c *EqC) internLabelSet(ls LabelSet) LabelSetID {
-	key := ls.key()
-	if id, ok := c.labelSetByKey[key]; ok {
-		return id
+// internKey returns the LabelSetID already assigned to the content
+// encoded by key (see LabelSet.key / LabelSet.projectKey), allocating a
+// new one the first time this exact (relevant-projected) label set is
+// seen and reporting isNew so the caller knows whether it still needs to
+// materialize/store the actual LabelSet. Identity is content-addressed,
+// not namespace-scoped: two namespaces with the same projected labels
+// share a LabelSetID.
+//
+// The map lookup on `string(key)` is the compiler's well-known
+// zero-allocation idiom for []byte-keyed map reads (see
+// https://github.com/golang/go/issues/3512): key itself is only copied
+// into a real string on the (rare, one-per-distinct-group) insert path.
+func (c *EqC) internKey(key []byte) (id LabelSetID, isNew bool) {
+	if id, ok := c.labelSetByKey[string(key)]; ok {
+		return id, false
 	}
-	id := LabelSetID(len(c.labeSetIDs))
-	c.labeSetIDs[id] = ls
-	c.labelSetByKey[key] = id
-	return id
+	id = c.nextLabelSetID
+	c.nextLabelSetID++
+	c.labelSetByKey[string(key)] = id
+	return id, true
 }

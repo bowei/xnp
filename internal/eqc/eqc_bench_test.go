@@ -2,6 +2,7 @@ package eqc
 
 import (
 	"math/rand"
+	"runtime"
 	"testing"
 )
 
@@ -84,6 +85,80 @@ func BenchmarkAdd(b *testing.B) {
 	}
 }
 
+// BenchmarkAddTwice times adding the same object set as two back-to-back
+// batches instead of one, exercising the code path Add takes once
+// c.partitions/c.labelSetByKey are already populated (existing namespace
+// entries, already-interned label-set groups for every group the first
+// batch already saw) rather than only the from-empty path BenchmarkAdd
+// covers.
+func BenchmarkAddTwice(b *testing.B) {
+	for _, cfg := range benchConfigs {
+		b.Run(cfg.name, func(b *testing.B) {
+			objects, relevant := genObjects(cfg)
+			mid := len(objects) / 2
+			first, second := objects[:mid], objects[mid:]
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				c := New(relevant)
+				c.Add(first)
+				c.Add(second)
+			}
+			b.StopTimer()
+			reportPerObject(b, objects)
+		})
+	}
+}
+
+// genUpdatedObjects returns objects with the same IDs/namespaces but every
+// relevant key's value bumped by one, so each object genuinely lands in a
+// different partition when passed to Update (unlike a same-labels no-op
+// update) regardless of cfg.cardinality. Object identity (K) is untouched,
+// so LabelSet's sort-by-K invariant still holds without re-sorting.
+func genUpdatedObjects(cfg benchConfig, objects []Labeled) []Labeled {
+	updated := make([]Labeled, len(objects))
+	for i, o := range objects {
+		old := o.Labels()
+		labels := make(LabelSet, len(old))
+		copy(labels, old)
+		for j := range labels {
+			if int(labels[j].K) <= cfg.numKeys {
+				labels[j].V++
+			}
+		}
+		to := o.(testObj)
+		to.labels = labels
+		updated[i] = to
+	}
+	return updated
+}
+
+// BenchmarkUpdate times c.Update on objects whose relevant labels have
+// actually changed (as opposed to BenchmarkUpdateRelevant, which changes
+// the tracked key set itself) — the evict-and-re-add path for every
+// object, as distinct from Update's no-op fast path when labels are
+// unchanged.
+func BenchmarkUpdate(b *testing.B) {
+	for _, cfg := range benchConfigs {
+		b.Run(cfg.name, func(b *testing.B) {
+			objects, relevant := genObjects(cfg)
+			updated := genUpdatedObjects(cfg, objects)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				c := New(relevant)
+				c.Add(objects)
+				b.StartTimer()
+
+				c.Update(updated)
+			}
+			b.StopTimer()
+			reportPerObject(b, objects)
+		})
+	}
+}
+
 func BenchmarkRemove(b *testing.B) {
 	for _, cfg := range benchConfigs {
 		b.Run(cfg.name, func(b *testing.B) {
@@ -129,4 +204,34 @@ func BenchmarkUpdateRelevant(b *testing.B) {
 
 func reportPerObject(b *testing.B, objects []Labeled) {
 	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(len(objects)), "ns/obj")
+}
+
+// TestMemoryFootprint reports the steady-state heap bytes retained per
+// object by EqC's own bookkeeping (partitions, the location index, and
+// the label-set intern index) — not throughput, but standing memory
+// cost, which matters as much as CPU at the object counts this is meant
+// to scale to. Isolated from the input objects' own memory (built and
+// GC-settled before the snapshot) so the number reflects EqC's
+// overhead alone.
+func TestMemoryFootprint(t *testing.T) {
+	for _, cfg := range benchConfigs {
+		t.Run(cfg.name, func(t *testing.T) {
+			objects, relevant := genObjects(cfg)
+
+			runtime.GC()
+			var before runtime.MemStats
+			runtime.ReadMemStats(&before)
+
+			c := New(relevant)
+			c.Add(objects)
+
+			runtime.GC()
+			var after runtime.MemStats
+			runtime.ReadMemStats(&after)
+
+			bytesPerObj := float64(after.HeapAlloc-before.HeapAlloc) / float64(len(objects))
+			t.Logf("%d objects -> %d distinct groups: %.1f bytes/object retained by EqC", len(objects), len(c.labelSetByKey), bytesPerObj)
+			runtime.KeepAlive(c)
+		})
+	}
 }

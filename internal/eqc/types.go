@@ -2,6 +2,7 @@ package eqc
 
 import (
 	"encoding/binary"
+	"slices"
 	"sort"
 )
 
@@ -49,11 +50,11 @@ func MakeLabelSet(kvs ...any) LabelSet {
 		}
 		out = append(out, KeyValue{K: k, V: v})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].K != out[j].K {
-			return out[i].K < out[j].K
+	slices.SortFunc(out, func(a, b KeyValue) int {
+		if a.K != b.K {
+			return int(a.K) - int(b.K)
 		}
-		return out[i].V < out[j].V
+		return int(a.V) - int(b.V)
 	})
 	return out
 }
@@ -119,4 +120,45 @@ func (s LabelSet) key() string {
 		binary.BigEndian.PutUint32(buf[i*8+4:], uint32(kv.V))
 	}
 	return string(buf)
+}
+
+// appendProjectKey is equivalent to append(dst, s.Project(keys).key()...),
+// but computes the canonical byte key directly from the full
+// (unprojected) s in one pass instead of first allocating the
+// intermediate projected LabelSet, and writes into a caller-owned
+// buffer. Used on EqC's Add hot path: a caller looping over many objects
+// passes the same dst[:0] back in each iteration so the backing array is
+// amortized to zero further allocations once it's grown to fit the
+// largest label set seen, instead of allocating a fresh buffer per
+// object — most calls only need the key to look up an already-interned
+// group (see EqC.internKey) and never need the projected LabelSet
+// itself.
+func (s LabelSet) appendProjectKey(dst []byte, relevantSet map[KeyID]bool) []byte {
+	for _, kv := range s {
+		if !relevantSet[kv.K] {
+			continue
+		}
+		dst = binary.BigEndian.AppendUint32(dst, uint32(kv.K))
+		dst = binary.BigEndian.AppendUint32(dst, uint32(kv.V))
+	}
+	return dst
+}
+
+// projectEquals reports whether s's projection onto relevantSet equals
+// want, without materializing the projected subset — equivalent to
+// slices.Equal(s.Project(keys), want) for the keys backing relevantSet.
+// want is assumed to already be a valid projection (sorted, every key in
+// relevantSet), which holds for any Partition.Labels().
+func (s LabelSet) projectEquals(relevantSet map[KeyID]bool, want LabelSet) bool {
+	w := 0
+	for _, kv := range s {
+		if !relevantSet[kv.K] {
+			continue
+		}
+		if w >= len(want) || want[w] != kv {
+			return false
+		}
+		w++
+	}
+	return w == len(want)
 }
