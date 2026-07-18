@@ -1,6 +1,9 @@
 package eqc
 
-import "sort"
+import (
+	"encoding/binary"
+	"sort"
+)
 
 // Later improvement: change to RoaringSets
 
@@ -104,4 +107,16 @@ func (s LabelSet) Project(relevant []KeyID) LabelSet {
 		}
 	}
 	return out
+}
+
+// key returns a canonical byte-string encoding of s, suitable for use as
+// a map key to content-address a LabelSet in O(1). Relies on s already
+// being sorted (the LabelSet invariant).
+func (s LabelSet) key() string {
+	buf := make([]byte, len(s)*8)
+	for i, kv := range s {
+		binary.BigEndian.PutUint32(buf[i*8:], uint32(kv.K))
+		binary.BigEndian.PutUint32(buf[i*8+4:], uint32(kv.V))
+	}
+	return string(buf)
 }

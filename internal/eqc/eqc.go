@@ -9,9 +9,27 @@ type Labeled interface {
 }
 
 type EqC struct {
-	relevant   []KeyID
+	relevant    []KeyID
+	relevantSet map[KeyID]bool
+
 	partitions map[NsID]Partitions
-	labeSetIDs map[LabelSetID]LabelSet
+
+	labeSetIDs    map[LabelSetID]LabelSet
+	labelSetByKey map[string]LabelSetID
+
+	// locations tracks, per namespace, where each object currently
+	// lives (its partition and index within that partition's slice) so
+	// Remove/Update can find and evict a single object in O(1) instead
+	// of scanning every partition/object.
+	locations map[NsID]map[uint64]objLoc
+}
+
+// objLoc is where a single object lives within its namespace's
+// Partitions: which LabelSetID-keyed partition, and its index in that
+// partition's objects slice.
+type objLoc struct {
+	labelSetID LabelSetID
+	idx        int
 }
 
 type Partitions map[LabelSetID]Partition
@@ -36,17 +54,41 @@ func (p Partition) Objects() []Labeled { return p.objects }
 // equivalence classes.
 func New(relevant []KeyID) *EqC {
 	return &EqC{
-		relevant:   append([]KeyID(nil), relevant...),
-		partitions: map[NsID]Partitions{},
-		labeSetIDs: map[LabelSetID]LabelSet{},
+		relevant:      append([]KeyID(nil), relevant...),
+		relevantSet:   newRelevantSet(relevant),
+		partitions:    map[NsID]Partitions{},
+		labeSetIDs:    map[LabelSetID]LabelSet{},
+		labelSetByKey: map[string]LabelSetID{},
+		locations:     map[NsID]map[uint64]objLoc{},
 	}
+}
+
+func newRelevantSet(relevant []KeyID) map[KeyID]bool {
+	set := make(map[KeyID]bool, len(relevant))
+	for _, k := range relevant {
+		set[k] = true
+	}
+	return set
+}
+
+// project is the internal equivalent of LabelSet.Project(c.relevant),
+// using the precomputed c.relevantSet instead of rebuilding a key set on
+// every call — relevant only changes on UpdateRelevant, not per object.
+func (c *EqC) project(s LabelSet) LabelSet {
+	out := make(LabelSet, 0, len(s))
+	for _, kv := range s {
+		if c.relevantSet[kv.K] {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // Add objects to the EqC, splitting the objects based on their
 // relevant Labels.
 func (c *EqC) Add(objects []Labeled) {
 	for _, o := range objects {
-		proj := o.Labels().Project(c.relevant)
+		proj := c.project(o.Labels())
 		id := c.internLabelSet(proj)
 
 		ns := o.Namespace()
@@ -55,12 +97,18 @@ func (c *EqC) Add(objects []Labeled) {
 			nsPartitions = Partitions{}
 			c.partitions[ns] = nsPartitions
 		}
+		nsLocations, ok := c.locations[ns]
+		if !ok {
+			nsLocations = map[uint64]objLoc{}
+			c.locations[ns] = nsLocations
+		}
 
 		p := nsPartitions[id]
 		p.labels = proj
 		p.labelSetID = id
 		p.objects = append(p.objects, o)
 		nsPartitions[id] = p
+		nsLocations[o.ID()] = objLoc{labelSetID: id, idx: len(p.objects) - 1}
 	}
 }
 
@@ -75,87 +123,74 @@ func (c *EqC) Add(objects []Labeled) {
 func (c *EqC) Update(objects []Labeled) {
 	for _, o := range objects {
 		ns := o.Namespace()
-		nsPartitions, ok := c.partitions[ns]
+		nsLocations, ok := c.locations[ns]
+		if !ok {
+			c.Add([]Labeled{o})
+			continue
+		}
+		loc, ok := nsLocations[o.ID()]
 		if !ok {
 			c.Add([]Labeled{o})
 			continue
 		}
 
-		var oldID LabelSetID
-		found := false
-		for id, p := range nsPartitions {
-			if slices.ContainsFunc(p.objects, func(other Labeled) bool { return other.ID() == o.ID() }) {
-				oldID = id
-				found = true
-				break
-			}
-		}
-		if !found {
-			c.Add([]Labeled{o})
-			continue
-		}
-
-		newProj := o.Labels().Project(c.relevant)
-		p := nsPartitions[oldID]
+		newProj := c.project(o.Labels())
+		nsPartitions := c.partitions[ns]
+		p := nsPartitions[loc.labelSetID]
 		if slices.Equal(p.labels, newProj) {
-			for j, existing := range p.objects {
-				if existing.ID() == o.ID() {
-					p.objects[j] = o
-					break
-				}
-			}
+			p.objects[loc.idx] = o
+			nsPartitions[loc.labelSetID] = p
 			continue
 		}
 
-		p.objects = slices.DeleteFunc(p.objects, func(other Labeled) bool {
-			return other.ID() == o.ID()
-		})
-		if len(p.objects) == 0 {
-			delete(nsPartitions, oldID)
-			if len(nsPartitions) == 0 {
-				delete(c.partitions, ns)
-			}
-		} else {
-			nsPartitions[oldID] = p
-		}
+		c.evict(ns, o.ID(), loc)
 		c.Add([]Labeled{o})
 	}
 }
 
-// Remove objects from the EqC. An object's current Partition is derived
-// from its own Namespace/Labels, so this assumes the object's labels
-// haven't changed since it was Added; a relabel should be a Remove of the
-// old value followed by an Add of the new one.
+// Remove objects from the EqC. Each object is located via the ID-keyed
+// index recorded at Add time, so this does not depend on the labels
+// passed on o still matching what was stored (unlike Update, a stale
+// label snapshot on o does not cause a mislocated or skipped removal).
 func (c *EqC) Remove(objects []Labeled) {
 	for _, o := range objects {
 		ns := o.Namespace()
-		nsPartitions, ok := c.partitions[ns]
+		nsLocations, ok := c.locations[ns]
 		if !ok {
 			continue
 		}
-
-		proj := o.Labels().Project(c.relevant)
-		id, ok := c.findLabelSetID(proj)
+		loc, ok := nsLocations[o.ID()]
 		if !ok {
 			continue
 		}
+		c.evict(ns, o.ID(), loc)
+	}
+}
 
-		p, ok := nsPartitions[id]
-		if !ok {
-			continue
-		}
-		p.objects = slices.DeleteFunc(p.objects, func(other Labeled) bool {
-			return other.ID() == o.ID()
-		})
+// evict removes the object with the given id at loc from its partition
+// in namespace ns, in O(1): swap the last object into loc's slot (fixing
+// up the moved object's tracked index) and truncate.
+func (c *EqC) evict(ns NsID, id uint64, loc objLoc) {
+	nsPartitions := c.partitions[ns]
+	p := nsPartitions[loc.labelSetID]
+	nsLocations := c.locations[ns]
 
-		if len(p.objects) == 0 {
-			delete(nsPartitions, id)
-			if len(nsPartitions) == 0 {
-				delete(c.partitions, ns)
-			}
-		} else {
-			nsPartitions[id] = p
+	last := len(p.objects) - 1
+	if loc.idx != last {
+		p.objects[loc.idx] = p.objects[last]
+		nsLocations[p.objects[loc.idx].ID()] = objLoc{labelSetID: loc.labelSetID, idx: loc.idx}
+	}
+	p.objects = p.objects[:last]
+	delete(nsLocations, id)
+
+	if len(p.objects) == 0 {
+		delete(nsPartitions, loc.labelSetID)
+		if len(nsPartitions) == 0 {
+			delete(c.partitions, ns)
+			delete(c.locations, ns)
 		}
+	} else {
+		nsPartitions[loc.labelSetID] = p
 	}
 }
 
@@ -172,8 +207,11 @@ func (c *EqC) UpdateRelevant(labels []KeyID) {
 	}
 
 	c.relevant = append([]KeyID(nil), labels...)
+	c.relevantSet = newRelevantSet(labels)
 	c.partitions = map[NsID]Partitions{}
 	c.labeSetIDs = map[LabelSetID]LabelSet{}
+	c.labelSetByKey = map[string]LabelSetID{}
+	c.locations = map[NsID]map[uint64]objLoc{}
 	c.Add(all)
 }
 
@@ -191,12 +229,8 @@ func (c *EqC) Range() func(yield func(NsID, Partitions) bool) {
 // findLabelSetID returns the LabelSetID already assigned to ls's content,
 // if any.
 func (c *EqC) findLabelSetID(ls LabelSet) (LabelSetID, bool) {
-	for id, existing := range c.labeSetIDs {
-		if slices.Equal(existing, ls) {
-			return id, true
-		}
-	}
-	return 0, false
+	id, ok := c.labelSetByKey[ls.key()]
+	return id, ok
 }
 
 // internLabelSet returns the LabelSetID for ls's content, allocating a new
@@ -204,10 +238,12 @@ func (c *EqC) findLabelSetID(ls LabelSet) (LabelSetID, bool) {
 // Identity is content-addressed, not namespace-scoped: two namespaces with
 // the same projected labels share a LabelSetID.
 func (c *EqC) internLabelSet(ls LabelSet) LabelSetID {
-	if id, ok := c.findLabelSetID(ls); ok {
+	key := ls.key()
+	if id, ok := c.labelSetByKey[key]; ok {
 		return id
 	}
 	id := LabelSetID(len(c.labeSetIDs))
 	c.labeSetIDs[id] = ls
+	c.labelSetByKey[key] = id
 	return id
 }
