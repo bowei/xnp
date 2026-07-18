@@ -1,6 +1,9 @@
 package eqc
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 type testObj struct {
 	id     uint64
@@ -105,6 +108,70 @@ func TestRemove(t *testing.T) {
 	c.Remove([]Labeled{o2})
 	if _, ok := c.partitions[ns1]; ok {
 		t.Fatalf("namespace ns1 still present after removing all objects")
+	}
+}
+
+func TestUpdate_MovesPartitionWhenRelevantLabelsChange(t *testing.T) {
+	c := New([]KeyID{keyApp})
+
+	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	c.Add([]Labeled{o1, o2})
+
+	relabeled := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valDB)}
+	c.Update([]Labeled{relabeled})
+
+	partitions := c.partitions[ns1]
+	if len(partitions) != 2 {
+		t.Fatalf("got %d partitions after moving one object, want 2 (app=web, app=db)", len(partitions))
+	}
+	dbID, ok := c.findLabelSetID(MakeLabelSet(keyApp, valDB))
+	if !ok {
+		t.Fatalf("no partition found for app=db")
+	}
+	dbPartition := partitions[dbID]
+	if len(dbPartition.Objects()) != 1 || dbPartition.Objects()[0].ID() != 1 {
+		t.Fatalf("app=db partition objects = %v, want just object 1", dbPartition.Objects())
+	}
+}
+
+func TestUpdate_InPlaceWhenRelevantLabelsUnchanged(t *testing.T) {
+	c := New([]KeyID{keyApp})
+
+	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valProd)}
+	c.Add([]Labeled{o1})
+
+	relabeled := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valStaging)}
+	c.Update([]Labeled{relabeled})
+
+	partitions := c.partitions[ns1]
+	if len(partitions) != 1 {
+		t.Fatalf("got %d partitions after an irrelevant-label-only change, want 1 (unchanged)", len(partitions))
+	}
+	for _, p := range partitions {
+		if len(p.Objects()) != 1 {
+			t.Fatalf("partition has %d objects, want 1", len(p.Objects()))
+		}
+		if !slices.Equal(p.Objects()[0].Labels(), relabeled.labels) {
+			t.Fatalf("stored object labels = %v, want the updated full label set %v", p.Objects()[0].Labels(), relabeled.labels)
+		}
+	}
+}
+
+func TestUpdate_AddsUntrackedObject(t *testing.T) {
+	c := New([]KeyID{keyApp})
+
+	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	c.Update([]Labeled{o1})
+
+	partitions := c.partitions[ns1]
+	if len(partitions) != 1 {
+		t.Fatalf("got %d partitions after Update of an untracked object, want 1 (upserted)", len(partitions))
+	}
+	for _, p := range partitions {
+		if len(p.Objects()) != 1 || p.Objects()[0].ID() != 1 {
+			t.Fatalf("partition objects = %v, want just object 1", p.Objects())
+		}
 	}
 }
 
