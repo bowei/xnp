@@ -4,12 +4,13 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/bowei/xnp/internal/intern"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestNewPod(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 
 	t.Run("single IP", func(t *testing.T) {
 		p := &corev1.Pod{

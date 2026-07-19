@@ -10,22 +10,23 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/bowei/xnp/internal/intern"
 	networkingv1 "k8s.io/api/networking/v1"
 )
 
-// kvPair packs a label key/value StringID pair into a single comparable,
+// kvPair packs a label key/value intern.ID pair into a single comparable,
 // hashable, sortable value (key in the high bits so sorting by kvPair also
 // sorts by key first). Used both as LabelSet's canonical form and as
 // CompiledSelector's exact-match requirements (see lookup.go), so the two
 // sides of a match can compare pairs directly instead of unpacking fields.
 type kvPair uint64
 
-func newKVPair(key, value StringID) kvPair {
+func newKVPair(key, value intern.ID) kvPair {
 	return kvPair(key)<<32 | kvPair(value)
 }
 
-func (p kvPair) key() StringID   { return StringID(p >> 32) }
-func (p kvPair) value() StringID { return StringID(uint32(p)) }
+func (p kvPair) key() intern.ID   { return intern.ID(p >> 32) }
+func (p kvPair) value() intern.ID { return intern.ID(uint32(p)) }
 
 // IPBlock is the memory-efficient mirror of a networkingv1.IPBlock.
 //

@@ -3,6 +3,7 @@ package repr
 import (
 	"fmt"
 
+	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/tuple"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -13,7 +14,7 @@ import (
 // NetworkPolicy is the memory-efficient mirror of a
 // networkingv1.NetworkPolicy.
 type NetworkPolicy struct {
-	Namespace   StringID
+	Namespace   intern.ID
 	Name        string
 	PodSelector metav1.LabelSelector
 	PolicyTypes []networkingv1.PolicyType
@@ -25,7 +26,7 @@ type NetworkPolicy struct {
 
 // NewNetworkPolicy converts np into repr form, interning its namespace via
 // tbl.
-func NewNetworkPolicy(np *networkingv1.NetworkPolicy, tbl *SymbolTable) (NetworkPolicy, error) {
+func NewNetworkPolicy(np *networkingv1.NetworkPolicy, tbl *intern.Table) (NetworkPolicy, error) {
 	ingress := make([]Rule, len(np.Spec.Ingress))
 	for i, rule := range np.Spec.Ingress {
 		peers, err := newPeers(rule.From)

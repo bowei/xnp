@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/tuple"
 )
@@ -66,7 +67,7 @@ func podIPStrings(pod repr.Pod) []string {
 // drift apart. Policies are bucketed by index into in.Policies rather than
 // copied, so policy identity (used by the indexed renderers to key
 // SelectorIDs) stays stable.
-func prepareRender(in *Input) (sortedPods []repr.Pod, podsByNamespace map[repr.StringID][]repr.Pod, policiesByNamespace map[repr.StringID][]int) {
+func prepareRender(in *Input) (sortedPods []repr.Pod, podsByNamespace map[intern.ID][]repr.Pod, policiesByNamespace map[intern.ID][]int) {
 	sortedPods = append([]repr.Pod(nil), in.Pods...)
 	sort.Slice(sortedPods, func(i, j int) bool {
 		pi, pj := sortedPods[i], sortedPods[j]
@@ -76,12 +77,12 @@ func prepareRender(in *Input) (sortedPods []repr.Pod, podsByNamespace map[repr.S
 		return pi.Name < pj.Name
 	})
 
-	podsByNamespace = map[repr.StringID][]repr.Pod{}
+	podsByNamespace = map[intern.ID][]repr.Pod{}
 	for _, p := range sortedPods {
 		podsByNamespace[p.Namespace] = append(podsByNamespace[p.Namespace], p)
 	}
 
-	policiesByNamespace = map[repr.StringID][]int{}
+	policiesByNamespace = map[intern.ID][]int{}
 	for i, np := range in.Policies {
 		policiesByNamespace[np.Namespace] = append(policiesByNamespace[np.Namespace], i)
 	}
@@ -94,7 +95,7 @@ func prepareRender(in *Input) (sortedPods []repr.Pod, podsByNamespace map[repr.S
 }
 
 // renderPod computes the full ingress+egress rule chain for a single pod.
-func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[repr.StringID][]repr.Pod) ([]tuple.Tuple, error) {
+func renderPod(in *Input, pod repr.Pod, nsPolicyIdx []int, podsByNamespace map[intern.ID][]repr.Pod) ([]tuple.Tuple, error) {
 	var selecting []int
 	for _, idx := range nsPolicyIdx {
 		np := in.Policies[idx]
@@ -216,7 +217,7 @@ func effectivePolicyTypes(np repr.NetworkPolicy) (ingress, egress bool) {
 //
 // Known simplification: IPBlock.Except sub-ranges are not carved out of the
 // CIDR in this baseline renderer.
-func resolvePeers(peers []repr.Peer, policyNamespace repr.StringID, podsByNamespace map[repr.StringID][]repr.Pod, namespaces []repr.Namespace, tbl *repr.SymbolTable) ([]peerEntry, error) {
+func resolvePeers(peers []repr.Peer, policyNamespace intern.ID, podsByNamespace map[intern.ID][]repr.Pod, namespaces []repr.Namespace, tbl *intern.Table) ([]peerEntry, error) {
 	if len(peers) == 0 {
 		return []peerEntry{{wildcard: true}}, nil
 	}
@@ -228,7 +229,7 @@ func resolvePeers(peers []repr.Peer, policyNamespace repr.StringID, podsByNamesp
 			continue
 		}
 
-		nsIDs := []repr.StringID{policyNamespace}
+		nsIDs := []intern.ID{policyNamespace}
 		if peer.NamespaceSelector != nil {
 			ids, err := matchingNamespaces(*peer.NamespaceSelector, namespaces, tbl)
 			if err != nil {
@@ -259,12 +260,12 @@ func resolvePeers(peers []repr.Peer, policyNamespace repr.StringID, podsByNamesp
 
 // matchingNamespaces returns the interned names of every namespace selected
 // by sel, sorted by name for determinism.
-func matchingNamespaces(sel metav1.LabelSelector, namespaces []repr.Namespace, tbl *repr.SymbolTable) ([]repr.StringID, error) {
+func matchingNamespaces(sel metav1.LabelSelector, namespaces []repr.Namespace, tbl *intern.Table) ([]intern.ID, error) {
 	cs, err := repr.CompileSelector(sel, tbl)
 	if err != nil {
 		return nil, err
 	}
-	var ids []repr.StringID
+	var ids []intern.ID
 	for _, ns := range namespaces {
 		if cs.Matches(ns.Labels) {
 			ids = append(ids, ns.Name)

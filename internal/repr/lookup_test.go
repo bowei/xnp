@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/bowei/xnp/internal/intern"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -65,7 +66,7 @@ func labelSetCases() []map[string]string {
 }
 
 func TestCompiledSelector_MatchesK8sSemantics(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	for i, sel := range selectorCases() {
 		cs, err := CompileSelector(sel, tbl)
 		if err != nil {
@@ -83,7 +84,7 @@ func TestCompiledSelector_MatchesK8sSemantics(t *testing.T) {
 }
 
 func TestInvertedIndex_MatchesCompiledSelector(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	cases := selectorCases()
 	compiled := make([]CompiledSelector, len(cases))
 	for i, sel := range cases {
@@ -114,7 +115,7 @@ func TestInvertedIndex_MatchesCompiledSelector(t *testing.T) {
 }
 
 func TestCompileSelector_Errors(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	cases := []metav1.LabelSelector{
 		{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "a", Operator: metav1.LabelSelectorOpIn}}},
 		{MatchExpressions: []metav1.LabelSelectorRequirement{{Key: "a", Operator: metav1.LabelSelectorOpNotIn}}},
@@ -128,7 +129,7 @@ func TestCompileSelector_Errors(t *testing.T) {
 }
 
 func TestSelectorRegistry_DedupesIdenticalSelectors(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	reg := NewSelectorRegistry(tbl)
 
 	sel1 := metav1.LabelSelector{MatchLabels: map[string]string{"app": "web", "env": "prod"}}
@@ -183,7 +184,7 @@ func TestBitset_SetTest(t *testing.T) {
 }
 
 func TestNamespaceSelectorCache_Match(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	namespaces := []Namespace{
 		NewNamespace(nsObj("prod-a", map[string]string{"tier": "prod"}), tbl),
 		NewNamespace(nsObj("prod-b", map[string]string{"tier": "prod"}), tbl),

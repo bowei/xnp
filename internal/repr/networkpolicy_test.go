@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/tuple"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestNewNetworkPolicy(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	protoUDP := corev1.ProtocolUDP
 
 	np := &networkingv1.NetworkPolicy{
@@ -82,7 +83,7 @@ func TestNewNetworkPolicy(t *testing.T) {
 }
 
 func TestNewNetworkPolicy_NamedPortUnsupported(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "np1"},
 		Spec: networkingv1.NetworkPolicySpec{
@@ -97,7 +98,7 @@ func TestNewNetworkPolicy_NamedPortUnsupported(t *testing.T) {
 }
 
 func TestNewNetworkPolicy_InvalidCIDR(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "np1"},
 		Spec: networkingv1.NetworkPolicySpec{

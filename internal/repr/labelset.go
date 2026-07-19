@@ -1,19 +1,23 @@
 package repr
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/bowei/xnp/internal/intern"
+)
 
 // LabelSet is a pod's or namespace's labels canonicalized into interned
 // integer form: kv gives O(1) key lookup, sorted gives a canonical,
 // hashable, iterable form for later identity/index work (see lookup.go).
 type LabelSet struct {
-	kv     map[StringID]StringID
+	kv     map[intern.ID]intern.ID
 	sorted []kvPair
 }
 
 // NewLabelSet interns labels' keys/values via tbl and returns their
 // canonical LabelSet form.
-func NewLabelSet(labels map[string]string, tbl *SymbolTable) LabelSet {
-	kv := make(map[StringID]StringID, len(labels))
+func NewLabelSet(labels map[string]string, tbl *intern.Table) LabelSet {
+	kv := make(map[intern.ID]intern.ID, len(labels))
 	sorted := make([]kvPair, 0, len(labels))
 	for k, v := range labels {
 		key, val := tbl.Intern(k), tbl.Intern(v)
@@ -24,8 +28,8 @@ func NewLabelSet(labels map[string]string, tbl *SymbolTable) LabelSet {
 	return LabelSet{kv: kv, sorted: sorted}
 }
 
-// Get returns the interned value StringID for key, if present.
-func (ls LabelSet) Get(key StringID) (StringID, bool) {
+// Get returns the interned value intern.ID for key, if present.
+func (ls LabelSet) Get(key intern.ID) (intern.ID, bool) {
 	v, ok := ls.kv[key]
 	return v, ok
 }
@@ -38,7 +42,7 @@ func (ls LabelSet) Len() int {
 // At returns the i'th key/value pair, in the canonical sorted (K, V) order
 // LabelSet maintains. Lets external packages (e.g. an eqc.LabelSet adapter)
 // walk a LabelSet's content without repr exposing its internal kvPair type.
-func (ls LabelSet) At(i int) (key, value StringID) {
+func (ls LabelSet) At(i int) (key, value intern.ID) {
 	kv := ls.sorted[i]
 	return kv.key(), kv.value()
 }

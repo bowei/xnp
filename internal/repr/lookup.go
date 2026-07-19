@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bowei/xnp/internal/intern"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,9 +55,9 @@ const (
 // in an inverted index and must be evaluated directly against a candidate
 // label set.
 type residualReq struct {
-	key    StringID
+	key    intern.ID
 	op     residualOp
-	values map[StringID]struct{}
+	values map[intern.ID]struct{}
 }
 
 // CompiledSelector is a metav1.LabelSelector compiled once into interned
@@ -69,7 +70,7 @@ type residualReq struct {
 //     candidates that already cleared the indexed part.
 type CompiledSelector struct {
 	exact      []kvPair // sorted
-	existsKeys []StringID
+	existsKeys []intern.ID
 	residual   []residualReq
 }
 
@@ -83,8 +84,8 @@ func (cs CompiledSelector) positiveCount() int {
 // residual (NotIn/DoesNotExist/multi-value-In) requirements, deduplicated.
 // Lets external packages determine which keys are "relevant" to selector
 // matching without depending on repr's internal compiled form.
-func (cs CompiledSelector) Keys() []StringID {
-	seen := make(map[StringID]struct{}, len(cs.exact)+len(cs.existsKeys)+len(cs.residual))
+func (cs CompiledSelector) Keys() []intern.ID {
+	seen := make(map[intern.ID]struct{}, len(cs.exact)+len(cs.existsKeys)+len(cs.residual))
 	for _, e := range cs.exact {
 		seen[e.key()] = struct{}{}
 	}
@@ -94,7 +95,7 @@ func (cs CompiledSelector) Keys() []StringID {
 	for _, r := range cs.residual {
 		seen[r.key] = struct{}{}
 	}
-	keys := make([]StringID, 0, len(seen))
+	keys := make([]intern.ID, 0, len(seen))
 	for k := range seen {
 		keys = append(keys, k)
 	}
@@ -103,7 +104,7 @@ func (cs CompiledSelector) Keys() []StringID {
 
 // CompileSelector converts sel into compiled form, interning every key/value
 // it references into tbl.
-func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelector, error) {
+func CompileSelector(sel metav1.LabelSelector, tbl *intern.Table) (CompiledSelector, error) {
 	var cs CompiledSelector
 
 	for k, v := range sel.MatchLabels {
@@ -121,7 +122,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 				cs.exact = append(cs.exact, newKVPair(key, tbl.Intern(expr.Values[0])))
 				continue
 			}
-			values := make(map[StringID]struct{}, len(expr.Values))
+			values := make(map[intern.ID]struct{}, len(expr.Values))
 			for _, v := range expr.Values {
 				values[tbl.Intern(v)] = struct{}{}
 			}
@@ -130,7 +131,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *SymbolTable) (CompiledSelect
 			if len(expr.Values) == 0 {
 				return CompiledSelector{}, fmt.Errorf("selector: NotIn requires at least one value for key %q", expr.Key)
 			}
-			values := make(map[StringID]struct{}, len(expr.Values))
+			values := make(map[intern.ID]struct{}, len(expr.Values))
 			for _, v := range expr.Values {
 				values[tbl.Intern(v)] = struct{}{}
 			}
@@ -234,12 +235,12 @@ func canonicalKey(sel metav1.LabelSelector) string {
 // SelectorRegistry compiles metav1.LabelSelectors exactly once, deduping
 // identical selectors by their canonical content.
 type SelectorRegistry struct {
-	tbl      *SymbolTable
+	tbl      *intern.Table
 	byKey    map[string]SelectorID
 	compiled []CompiledSelector
 }
 
-func NewSelectorRegistry(tbl *SymbolTable) *SelectorRegistry {
+func NewSelectorRegistry(tbl *intern.Table) *SelectorRegistry {
 	return &SelectorRegistry{tbl: tbl, byKey: map[string]SelectorID{}}
 }
 
@@ -295,7 +296,7 @@ func (b Bitset) Test(i uint32) bool {
 // selector evaluations.
 type InvertedIndex struct {
 	byExact map[kvPair][]SelectorID
-	byKey   map[StringID][]SelectorID // Exists requirements, indexed by key alone
+	byKey   map[intern.ID][]SelectorID // Exists requirements, indexed by key alone
 	// scanAlways holds selectors with zero positive (exact/Exists)
 	// requirements — an empty selector, or one built purely from
 	// NotIn/DoesNotExist — which can't be found by indexing a label set's
@@ -308,7 +309,7 @@ type InvertedIndex struct {
 func BuildInvertedIndex(compiled []CompiledSelector) *InvertedIndex {
 	idx := &InvertedIndex{
 		byExact:  map[kvPair][]SelectorID{},
-		byKey:    map[StringID][]SelectorID{},
+		byKey:    map[intern.ID][]SelectorID{},
 		required: make([]int, len(compiled)),
 		compiled: compiled,
 	}
@@ -384,16 +385,16 @@ func (idx *InvertedIndex) Match(ls LabelSet) []SelectorID {
 //
 // The match cache is lazily populated; mu guards it for concurrent callers.
 type NamespaceSelectorCache struct {
-	tbl        *SymbolTable
+	tbl        *intern.Table
 	namespaces []LabelSet
-	names      []StringID
+	names      []intern.ID
 
 	mu    sync.RWMutex
-	cache map[string][]StringID
+	cache map[string][]intern.ID
 }
 
-func NewNamespaceSelectorCache(namespaces []Namespace, tbl *SymbolTable) *NamespaceSelectorCache {
-	c := &NamespaceSelectorCache{tbl: tbl, cache: map[string][]StringID{}}
+func NewNamespaceSelectorCache(namespaces []Namespace, tbl *intern.Table) *NamespaceSelectorCache {
+	c := &NamespaceSelectorCache{tbl: tbl, cache: map[string][]intern.ID{}}
 	for _, ns := range namespaces {
 		c.namespaces = append(c.namespaces, ns.Labels)
 		c.names = append(c.names, ns.Name)
@@ -403,7 +404,7 @@ func NewNamespaceSelectorCache(namespaces []Namespace, tbl *SymbolTable) *Namesp
 
 // Match returns the interned names of every namespace selected by sel,
 // sorted by name for determinism.
-func (c *NamespaceSelectorCache) Match(sel metav1.LabelSelector) ([]StringID, error) {
+func (c *NamespaceSelectorCache) Match(sel metav1.LabelSelector) ([]intern.ID, error) {
 	key := canonicalKey(sel)
 
 	c.mu.RLock()
@@ -417,7 +418,7 @@ func (c *NamespaceSelectorCache) Match(sel metav1.LabelSelector) ([]StringID, er
 	if err != nil {
 		return nil, err
 	}
-	var matched []StringID
+	var matched []intern.ID
 	for i, ls := range c.namespaces {
 		if cs.Matches(ls) {
 			matched = append(matched, c.names[i])

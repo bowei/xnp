@@ -3,12 +3,13 @@ package repr
 import (
 	"testing"
 
+	"github.com/bowei/xnp/internal/intern"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestNewNamespace(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team-a", Labels: map[string]string{"tier": "prod"}}}
 
 	got := NewNamespace(ns, tbl)

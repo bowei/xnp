@@ -2,10 +2,12 @@ package repr
 
 import (
 	"testing"
+
+	"github.com/bowei/xnp/internal/intern"
 )
 
 func TestNewLabelSet(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	ls := NewLabelSet(map[string]string{"app": "web", "env": "prod"}, tbl)
 
 	if got := ls.Len(); got != 2 {
@@ -25,7 +27,7 @@ func TestNewLabelSet(t *testing.T) {
 }
 
 func TestNewLabelSet_SortedOrderIsCanonical(t *testing.T) {
-	tbl := NewSymbolTable()
+	tbl := intern.NewTable()
 	labels := map[string]string{"z": "1", "a": "2", "m": "3"}
 
 	// map iteration order is randomized by the runtime; building the same

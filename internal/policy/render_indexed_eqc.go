@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 
 	"github.com/bowei/xnp/internal/eqc"
+	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/repr"
 )
 
@@ -47,12 +48,12 @@ func podID(p *repr.Pod) uint64 {
 	return h.Sum64()
 }
 
-// nsToEqC/eqcToNS convert between repr's namespace StringID and eqc's NsID.
-// The +1 offset avoids colliding with eqc.NoNS (0): repr's SymbolTable, like
-// eqc's own ID allocators, assigns 0 to the first interned string, and a
-// real namespace must never be mistaken for eqc's "no namespace" sentinel.
-func nsToEqC(ns repr.StringID) eqc.NsID { return eqc.NsID(ns) + 1 }
-func eqcToNS(id eqc.NsID) repr.StringID { return repr.StringID(id - 1) }
+// nsToEqC/eqcToNS convert between repr's namespace intern.ID and eqc's NsID.
+// The +1 offset avoids colliding with eqc.NoNS (0): intern.Table, like eqc's
+// own ID allocators, assigns 0 to the first interned string, and a real
+// namespace must never be mistaken for eqc's "no namespace" sentinel.
+func nsToEqC(ns intern.ID) eqc.NsID { return eqc.NsID(ns) + 1 }
+func eqcToNS(id eqc.NsID) intern.ID { return intern.ID(id - 1) }
 
 // labelSetToEqC converts a repr.LabelSet into eqc.LabelSet form. Both types
 // maintain the same invariant (entries sorted ascending by (key, value)), so
@@ -71,7 +72,7 @@ func labelSetToEqC(ls repr.LabelSet) eqc.LabelSet {
 // differ only in labels no selector ever inspects still collapse into one
 // identity.
 func referencedKeys(reg *repr.SelectorRegistry) []eqc.KeyID {
-	seen := map[repr.StringID]struct{}{}
+	seen := map[intern.ID]struct{}{}
 	for _, cs := range reg.All() {
 		for _, k := range cs.Keys() {
 			seen[k] = struct{}{}

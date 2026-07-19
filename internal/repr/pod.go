@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/bowei/xnp/internal/intern"
 	corev1 "k8s.io/api/core/v1"
 )
 
 // Pod is the memory-efficient mirror of a corev1.Pod.
 type Pod struct {
-	Namespace StringID
+	Namespace intern.ID
 	Name      string
 	Labels    LabelSet
 	IPs       []netip.Addr
@@ -21,7 +22,7 @@ type Pod struct {
 // tbl. Pod IPs are drawn from Status.PodIPs (falling back to Status.PodIP),
 // mirroring internal/policy's podIPs(); a pod with no IP assigned yet
 // yields a nil IPs slice rather than an error.
-func NewPod(pod *corev1.Pod, tbl *SymbolTable) (Pod, error) {
+func NewPod(pod *corev1.Pod, tbl *intern.Table) (Pod, error) {
 	ips, err := parsePodIPs(pod)
 	if err != nil {
 		return Pod{}, fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)

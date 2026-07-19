@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/bowei/xnp/internal/eqc"
+	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
@@ -100,7 +101,7 @@ func RenderIndexed(in *Input, s store.Store) error {
 // groupKey identifies a (namespace, identity) group: every pod sharing a key
 // resolves to the same ingress/egress templates.
 type groupKey struct {
-	ns repr.StringID
+	ns intern.ID
 	id eqc.LabelSetID
 }
 
@@ -113,12 +114,12 @@ type indexedState struct {
 	in                  *Input
 	sortedPods          []repr.Pod
 	podIdentity         []eqc.LabelSetID
-	policiesByNamespace map[repr.StringID][]int
+	policiesByNamespace map[intern.ID][]int
 	policySelector      []repr.SelectorID // indexed by position in in.Policies
 	registry            *repr.SelectorRegistry
 	matchedByIdentity   map[eqc.LabelSetID]repr.Bitset
-	identitiesByNS      map[repr.StringID][]eqc.LabelSetID
-	podsByNS            map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod
+	identitiesByNS      map[intern.ID][]eqc.LabelSetID
+	podsByNS            map[intern.ID]map[eqc.LabelSetID][]*repr.Pod
 	nsIndex             *repr.NamespaceSelectorCache
 }
 
@@ -160,8 +161,8 @@ func prepareIndexedRender(in *Input) (*indexedState, error) {
 	eqIndex.Add(labeled)
 
 	podIdentity := make([]eqc.LabelSetID, len(sortedPods))
-	podsByNS := map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod{}
-	identitiesByNS := map[repr.StringID][]eqc.LabelSetID{}
+	podsByNS := map[intern.ID]map[eqc.LabelSetID][]*repr.Pod{}
+	identitiesByNS := map[intern.ID][]eqc.LabelSetID{}
 	for ns, parts := range eqIndex.Range() {
 		rns := eqcToNS(ns)
 		byID := make(map[eqc.LabelSetID][]*repr.Pod, len(parts))
@@ -307,7 +308,7 @@ type groupTemplates struct {
 // implementation.
 type ruleRef struct {
 	policyName      string
-	policyNamespace repr.StringID
+	policyNamespace intern.ID
 	peers           []repr.Peer
 	ports           []repr.Port
 }
@@ -316,7 +317,7 @@ type ruleRef struct {
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
 // deferring per-pod own-address substitution to the caller.
-func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
+func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
 	var selectingIdx []int
 	for _, idx := range nsPolicyIdx {
 		if selfMatch.Test(uint32(policySelector[idx])) {
@@ -374,7 +375,7 @@ func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, 
 // can reach (thousands of matching pods) means repeated doubling-and-copy
 // churn, the same issue RenderIndexed's final tuple slice had (see its doc
 // comment).
-func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
+func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
 	if !isolated {
 		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
 	}
@@ -415,7 +416,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 //
 // Known simplification, matching resolvePeers: IPBlock.Except sub-ranges
 // are not carved out of the CIDR.
-func resolvePeersIndexed(peers []repr.Peer, policyNamespace repr.StringID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
+func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
 	if len(peers) == 0 {
 		return []peerEntry{{wildcard: true}}, nil
 	}
@@ -427,7 +428,7 @@ func resolvePeersIndexed(peers []repr.Peer, policyNamespace repr.StringID, regis
 			continue
 		}
 
-		nsIDs := []repr.StringID{policyNamespace}
+		nsIDs := []intern.ID{policyNamespace}
 		if peer.NamespaceSelector != nil {
 			ids, err := nsIndex.Match(*peer.NamespaceSelector)
 			if err != nil {
