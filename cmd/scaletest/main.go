@@ -13,7 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bowei/xnp/internal/policy"
+	"github.com/bowei/xnp/internal/policy/basic"
+	"github.com/bowei/xnp/internal/policy/common"
+	"github.com/bowei/xnp/internal/policy/indexed"
 	"github.com/bowei/xnp/internal/scaletest"
 	"github.com/bowei/xnp/internal/store"
 )
@@ -89,7 +91,7 @@ func renderCmd() *cobra.Command {
 
 			allocBefore = scaletest.SnapshotAlloc()
 			start = time.Now()
-			in, err := policy.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
+			in, err := common.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
 			convDur := time.Since(start)
 			convAlloc := scaletest.SnapshotAlloc().Since(allocBefore)
 			if err != nil {
@@ -107,13 +109,13 @@ func renderCmd() *cobra.Command {
 			start = time.Now()
 			switch renderer {
 			case "parallel":
-				err = policy.RenderParallel(in, tupleStore, workers)
+				err = basic.RenderParallel(in, tupleStore, workers)
 			case "indexed":
-				err = policy.RenderIndexed(in, tupleStore)
+				err = indexed.RenderIndexed(in, tupleStore)
 			case "indexed-parallel":
-				err = policy.RenderIndexedParallel(in, tupleStore, workers)
+				err = indexed.RenderIndexedParallel(in, tupleStore, workers)
 			default:
-				err = policy.RenderBasic(in, tupleStore)
+				err = basic.RenderBasic(in, tupleStore)
 			}
 			renderDur := time.Since(start)
 			mem := stopMem()

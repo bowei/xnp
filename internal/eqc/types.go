@@ -2,6 +2,7 @@ package eqc
 
 import (
 	"encoding/binary"
+	"math"
 	"slices"
 	"sort"
 )
@@ -18,8 +19,8 @@ type KeyID uint32
 type ValueID uint32
 
 const (
-	NoNS    NsID    = 0
-	NoValue ValueID = 0
+	NoNS    NsID    = math.MaxUint32
+	NoValue ValueID = math.MaxUint32
 )
 
 type LabelSetID uint64

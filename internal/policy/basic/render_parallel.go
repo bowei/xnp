@@ -1,4 +1,4 @@
-package policy
+package basic
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/bowei/xnp/internal/policy/common"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
 )
@@ -14,8 +15,8 @@ import (
 // across workers goroutines, writing the result into s. workers <= 0
 // defaults to runtime.GOMAXPROCS(0). Output tuple order matches RenderBasic
 // exactly.
-func RenderParallel(in *Input, s store.Store, workers int) error {
-	sortedPods, podsByNamespace, policiesByNamespace := prepareRender(in)
+func RenderParallel(in *common.Input, s store.Store, workers int) error {
+	sortedPods, podsByNamespace, policiesByNamespace := common.PrepareRender(in)
 
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -39,7 +40,7 @@ func RenderParallel(in *Input, s store.Store, workers int) error {
 					return
 				}
 				pod := sortedPods[i]
-				podTuples, err := renderPod(in, pod, policiesByNamespace[pod.Namespace], podsByNamespace)
+				podTuples, err := common.RenderPod(in, pod, policiesByNamespace[pod.Namespace], podsByNamespace)
 				if err != nil {
 					errs[i] = fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 					continue

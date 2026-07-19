@@ -1,4 +1,4 @@
-package policy
+package indexed
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/bowei/xnp/internal/eqc"
+	"github.com/bowei/xnp/internal/policy/common"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
@@ -32,7 +33,7 @@ import (
 //     now-shared, read-only template slice — the fan-out-heavy part, since
 //     concrete pod addresses still make output size proportional to pod
 //     count even after templates are shared.
-func RenderIndexedParallel(in *Input, s store.Store, workers int) error {
+func RenderIndexedParallel(in *common.Input, s store.Store, workers int) error {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func computeGroupTemplatesParallel(st *indexedState, groups []groupKey, workers 
 // peak memory (both copies of ~25M tuples live at once) and, at that size,
 // loses more to the resulting GC pressure than the parallel fan-out saves.
 func materializeTuplesParallel(
-	in *Input,
+	in *common.Input,
 	sortedPods []repr.Pod,
 	groupIndex []int,
 	templates []*groupTemplates,
@@ -143,7 +144,7 @@ func materializeTuplesParallel(
 	ownIPs := make([][]string, len(sortedPods))
 	offsets := make([]int, len(sortedPods)+1)
 	for i, pod := range sortedPods {
-		ips := podIPStrings(pod)
+		ips := common.PodIPStrings(pod)
 		ownIPs[i] = ips
 		n := len(ips)
 		if n == 0 {
@@ -176,7 +177,7 @@ func materializeTuplesParallel(
 				var err error
 				for _, tt := range tmpl.ingress {
 					var written int
-					written, err = writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+					written, err = common.WriteTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 					if err != nil {
 						break
 					}
@@ -185,7 +186,7 @@ func materializeTuplesParallel(
 				if err == nil {
 					for _, tt := range tmpl.egress {
 						var written int
-						written, err = writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+						written, err = common.WriteTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 						if err != nil {
 							break
 						}

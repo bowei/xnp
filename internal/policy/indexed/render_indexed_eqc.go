@@ -1,4 +1,4 @@
-package policy
+package indexed
 
 import (
 	"encoding/binary"
@@ -13,9 +13,9 @@ import (
 // repr.SelectorRegistry) onto internal/eqc's Labeled/LabelSet/NsID/KeyID
 // types, so prepareIndexedRender can use eqc.EqC to group pods into
 // (namespace, identity) partitions instead of repr's one-off
-// IdentityAllocator. Kept in policy rather than repr so repr stays free of
-// an eqc dependency, matching lookup.go's existing "no dependency" stance
-// for the policy package.
+// IdentityAllocator. Kept in policy/indexed rather than repr so repr stays
+// free of an eqc dependency, matching this package's existing "no
+// dependency" stance.
 
 // podLabeled adapts a *repr.Pod to eqc.Labeled. It carries idx (the pod's
 // position in prepareIndexedRender's sortedPods) so callers walking

@@ -3,7 +3,8 @@ package scaletest
 import (
 	"testing"
 
-	"github.com/bowei/xnp/internal/policy"
+	"github.com/bowei/xnp/internal/policy/basic"
+	"github.com/bowei/xnp/internal/policy/common"
 	"github.com/bowei/xnp/internal/store"
 )
 
@@ -61,11 +62,11 @@ func TestGenerate_RendersCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	in, err := policy.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
+	in, err := common.NewInput(tc.Policies, tc.Pods, tc.Namespaces)
 	if err != nil {
 		t.Fatalf("NewInput: %v", err)
 	}
-	if err := policy.RenderBasic(in, store.NewStore(0)); err != nil {
+	if err := basic.RenderBasic(in, store.NewStore(0)); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 }

@@ -1,4 +1,9 @@
-package policy
+// Package indexed implements the optimized policy renderers, RenderIndexed
+// and RenderIndexedParallel, per the "Label optimizations" in
+// doc/optimizations.md — see RenderIndexed's doc comment for the strategy
+// summary. Both are cross-checked against policy/basic's RenderBasic (the
+// correctness reference) in this package's differential tests.
+package indexed
 
 import (
 	"fmt"
@@ -10,6 +15,7 @@ import (
 
 	"github.com/bowei/xnp/internal/eqc"
 	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/policy/common"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
@@ -41,7 +47,7 @@ import (
 // growing tuples via append, which at this output size (tens of millions of
 // Tuples for large clusters) burns several times the final live size in
 // doubling-and-copy churn along the way.
-func RenderIndexed(in *Input, s store.Store) error {
+func RenderIndexed(in *common.Input, s store.Store) error {
 	st, err := prepareIndexedRender(in)
 	if err != nil {
 		return err
@@ -64,7 +70,7 @@ func RenderIndexed(in *Input, s store.Store) error {
 		}
 		templates[i] = tmpl
 
-		ips := podIPStrings(pod)
+		ips := common.PodIPStrings(pod)
 		ownIPs[i] = ips
 		n := len(ips)
 		if n == 0 {
@@ -80,14 +86,14 @@ func RenderIndexed(in *Input, s store.Store) error {
 		dst := tuples.Slice(offsets[i], offsets[i+1])
 		n := 0
 		for _, tt := range tmpl.ingress {
-			written, err := writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
+			written, err := common.WriteTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionIngress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
 				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
 			n += written
 		}
 		for _, tt := range tmpl.egress {
-			written, err := writeTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
+			written, err := common.WriteTuples(dst.Slice(n, dst.Len()), podName, ownIPs[i], tuple.DirectionEgress, tt.verdict, tt.peer, tt.port)
 			if err != nil {
 				return fmt.Errorf("pod %s/%s: %w", in.Table.String(pod.Namespace), pod.Name, err)
 			}
@@ -111,7 +117,7 @@ type groupKey struct {
 // between RenderIndexed and RenderIndexedParallel, which differ only in how
 // they walk groups and pods once this state exists.
 type indexedState struct {
-	in                  *Input
+	in                  *common.Input
 	sortedPods          []repr.Pod
 	podIdentity         []eqc.LabelSetID
 	policiesByNamespace map[intern.ID][]int
@@ -123,13 +129,13 @@ type indexedState struct {
 	nsIndex             *repr.NamespaceSelectorCache
 }
 
-func prepareIndexedRender(in *Input) (*indexedState, error) {
+func prepareIndexedRender(in *common.Input) (*indexedState, error) {
 	startTs := time.Now()
 	defer func() {
 		slog.Info("prepareIndexedRender", "duration", time.Since(startTs))
 	}()
 
-	sortedPods, _, policiesByNamespace := prepareRender(in)
+	sortedPods, _, policiesByNamespace := common.PrepareRender(in)
 
 	registry := repr.NewSelectorRegistry(in.Table)
 
@@ -293,8 +299,8 @@ func registerPeers(peers []repr.Peer, registry *repr.SelectorRegistry) error {
 // address(es) — supplied later by makeTuples per pod.
 type tupleTemplate struct {
 	verdict tuple.Verdict
-	peer    peerEntry
-	port    portEntry
+	peer    common.PeerEntry
+	port    common.PortEntry
 }
 
 type groupTemplates struct {
@@ -317,7 +323,7 @@ type ruleRef struct {
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
 // deferring per-pod own-address substitution to the caller.
-func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
+func computeGroupTemplates(in *common.Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
 	var selectingIdx []int
 	for _, idx := range nsPolicyIdx {
 		if selfMatch.Test(uint32(policySelector[idx])) {
@@ -327,7 +333,7 @@ func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, 
 
 	var ingressIdx, egressIdx []int
 	for _, idx := range selectingIdx {
-		ingress, egress := effectivePolicyTypes(in.Policies[idx])
+		ingress, egress := common.EffectivePolicyTypes(in.Policies[idx])
 		if ingress {
 			ingressIdx = append(ingressIdx, idx)
 		}
@@ -377,12 +383,12 @@ func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, 
 // comment).
 func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
 	if !isolated {
-		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
+		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: common.PeerEntry{Wildcard: true}, port: common.PortEntry{Wildcard: true}}}, nil
 	}
 
 	type resolvedRule struct {
-		peers []peerEntry
-		ports []portEntry
+		peers []common.PeerEntry
+		ports []common.PortEntry
 	}
 	resolved := make([]resolvedRule, len(rules))
 	total := 0
@@ -391,7 +397,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 		if err != nil {
 			return nil, fmt.Errorf("policy %s: %w", r.policyName, err)
 		}
-		ports := resolvePorts(r.ports)
+		ports := common.ResolvePorts(r.ports)
 		resolved[i] = resolvedRule{peers, ports}
 		total += len(peers) * len(ports)
 	}
@@ -404,7 +410,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 			}
 		}
 	}
-	entries = append(entries, tupleTemplate{verdict: tuple.VerdictDeny, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}})
+	entries = append(entries, tupleTemplate{verdict: tuple.VerdictDeny, peer: common.PeerEntry{Wildcard: true}, port: common.PortEntry{Wildcard: true}})
 	return entries, nil
 }
 
@@ -416,15 +422,15 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 //
 // Known simplification, matching resolvePeers: IPBlock.Except sub-ranges
 // are not carved out of the CIDR.
-func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
+func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]common.PeerEntry, error) {
 	if len(peers) == 0 {
-		return []peerEntry{{wildcard: true}}, nil
+		return []common.PeerEntry{{Wildcard: true}}, nil
 	}
 
-	var entries []peerEntry
+	var entries []common.PeerEntry
 	for _, peer := range peers {
 		if peer.IPBlock != nil {
-			entries = append(entries, peerEntry{addr: peer.IPBlock.CIDR.String()})
+			entries = append(entries, common.PeerEntry{Addr: peer.IPBlock.CIDR.String()})
 			continue
 		}
 
@@ -454,7 +460,7 @@ func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry 
 				}
 				for _, pod := range podsByNS[ns][id] {
 					for _, ip := range pod.IPs {
-						entries = append(entries, peerEntry{addr: ip.String()})
+						entries = append(entries, common.PeerEntry{Addr: ip.String()})
 					}
 				}
 			}
