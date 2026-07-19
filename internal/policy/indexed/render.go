@@ -17,6 +17,7 @@ import (
 	"github.com/bowei/xnp/internal/intern"
 	"github.com/bowei/xnp/internal/policy/common"
 	"github.com/bowei/xnp/internal/repr"
+	"github.com/bowei/xnp/internal/selector"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
 )
@@ -126,7 +127,7 @@ type indexedState struct {
 	matchedByIdentity   map[eqc.LabelSetID]repr.Bitset
 	identitiesByNS      map[intern.ID][]eqc.LabelSetID
 	podsByNS            map[intern.ID]map[eqc.LabelSetID][]*repr.Pod
-	nsIndex             *repr.NamespaceSelectorCache
+	nsIndex             *selector.NamespaceSelectorCache
 }
 
 func prepareIndexedRender(in *common.Input) (*indexedState, error) {
@@ -209,7 +210,7 @@ func prepareIndexedRender(in *common.Input) (*indexedState, error) {
 		matchedByIdentity[id] = bs
 	}
 
-	nsIndex := repr.NewNamespaceSelectorCache(in.Namespaces, in.Table)
+	nsIndex := selector.NewNamespaceSelectorCache(in.Namespaces, in.Table)
 
 	st := &indexedState{
 		in:                  in,
@@ -323,7 +324,7 @@ type ruleRef struct {
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
 // deferring per-pod own-address substitution to the caller.
-func computeGroupTemplates(in *common.Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
+func computeGroupTemplates(in *common.Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *selector.NamespaceSelectorCache) (*groupTemplates, error) {
 	var selectingIdx []int
 	for _, idx := range nsPolicyIdx {
 		if selfMatch.Test(uint32(policySelector[idx])) {
@@ -381,7 +382,15 @@ func computeGroupTemplates(in *common.Input, selfMatch repr.Bitset, nsPolicyIdx 
 // can reach (thousands of matching pods) means repeated doubling-and-copy
 // churn, the same issue RenderIndexed's final tuple slice had (see its doc
 // comment).
-func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
+func resolveTupleTemplates(
+	isolated bool,
+	rules []ruleRef,
+	registry *repr.SelectorRegistry,
+	matchedByIdentity map[eqc.LabelSetID]repr.Bitset,
+	identitiesByNS map[intern.ID][]eqc.LabelSetID,
+	podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod,
+	nsIndex *selector.NamespaceSelectorCache,
+) ([]tupleTemplate, error) {
 	if !isolated {
 		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: common.PeerEntry{Wildcard: true}, port: common.PortEntry{Wildcard: true}}}, nil
 	}
@@ -422,7 +431,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 //
 // Known simplification, matching resolvePeers: IPBlock.Except sub-ranges
 // are not carved out of the CIDR.
-func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]common.PeerEntry, error) {
+func resolvePeersIndexed(peers []repr.Peer, policyNamespace intern.ID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[intern.ID][]eqc.LabelSetID, podsByNS map[intern.ID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *selector.NamespaceSelectorCache) ([]common.PeerEntry, error) {
 	if len(peers) == 0 {
 		return []common.PeerEntry{{Wildcard: true}}, nil
 	}

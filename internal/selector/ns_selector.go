@@ -1,11 +1,14 @@
-package repr
+package selector
 
 import (
 	"sort"
 	"sync"
 
-	"github.com/bowei/xnp/internal/intern"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/repr"
 )
 
 // NamespaceSelectorCache memoizes NamespaceSelector matches against the
@@ -16,14 +19,14 @@ import (
 // The match cache is lazily populated; mu guards it for concurrent callers.
 type NamespaceSelectorCache struct {
 	tbl        *intern.Table
-	namespaces []LabelSet
+	namespaces []labelset.LabelSet
 	names      []intern.ID
 
 	mu    sync.RWMutex
 	cache map[string][]intern.ID
 }
 
-func NewNamespaceSelectorCache(namespaces []Namespace, tbl *intern.Table) *NamespaceSelectorCache {
+func NewNamespaceSelectorCache(namespaces []repr.Namespace, tbl *intern.Table) *NamespaceSelectorCache {
 	c := &NamespaceSelectorCache{tbl: tbl, cache: map[string][]intern.ID{}}
 	for _, ns := range namespaces {
 		c.namespaces = append(c.namespaces, ns.Labels)
