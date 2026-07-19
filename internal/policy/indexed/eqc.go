@@ -9,24 +9,6 @@ import (
 	"github.com/bowei/xnp/internal/repr"
 )
 
-// This file adapts repr's storage types (repr.Pod, repr.LabelSet,
-// repr.SelectorRegistry) onto internal/eqc's Labeled/LabelSet/NsID/KeyID
-// types, so prepareIndexedRender can use eqc.EqC to group pods into
-// (namespace, identity) partitions instead of repr's one-off
-// IdentityAllocator. Kept in policy/indexed rather than repr so repr stays
-// free of an eqc dependency, matching this package's existing "no
-// dependency" stance.
-
-// podLabeled adapts a *repr.Pod to eqc.Labeled. It carries idx (the pod's
-// position in prepareIndexedRender's sortedPods) so callers walking
-// eqc.EqC.Range() can recover which sortedPods entry an object came from
-// without a reverse lookup. prepareIndexedRender allocates one []podLabeled
-// backing array up front and passes eqc.EqC.Add element *pointers* into it
-// (&refs[i]) rather than boxing each repr.Pod (or podLabeled value) into the
-// eqc.Labeled interface individually — since *podLabeled is already a
-// pointer type, that conversion is allocation-free, and the one bulk
-// []podLabeled allocation replaces what would otherwise be one small heap
-// allocation per pod.
 type podLabeled struct {
 	p   *repr.Pod
 	idx int
@@ -39,6 +21,8 @@ func (o *podLabeled) Labels() eqc.LabelSet { return labelSetToEqC(o.p.Labels) }
 // podID derives a stable identity for a pod from its namespace/name, which
 // (unlike repr.Pod, which has no numeric ID field) is guaranteed unique
 // within a single render's input.
+//
+// TODO: this is not guarranteed to be unique.
 func podID(p *repr.Pod) uint64 {
 	h := fnv.New64a()
 	var b [4]byte
