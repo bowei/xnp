@@ -33,6 +33,15 @@ var benchConfigs = []benchConfig{
 	{name: "ManyNamespaces_Shared", numObjects: 20000, numNS: 200, numKeys: 2, cardinality: 4},
 	{name: "ManyNamespaces_Unique", numObjects: 2000, numNS: 200, numKeys: 2, cardinality: 10, forceUnique: true},
 	{name: "NoiseLabels_LowCardinality", numObjects: 10000, numNS: 1, numKeys: 4, cardinality: 10, noiseKeys: 20},
+
+	// Pathological cases, each pushing one axis an order of magnitude past
+	// the configs above: object count within a single namespace, per-key
+	// value cardinality alone, value cardinality combined with key count,
+	// and key count alone.
+	{name: "LargeSingleNamespace", numObjects: 200000, numNS: 1, numKeys: 4, cardinality: 50},
+	{name: "VeryHighCardinality_1Key", numObjects: 20000, numNS: 1, numKeys: 1, cardinality: 5000},
+	{name: "VeryHighCardinality_KeysAndValues", numObjects: 20000, numNS: 1, numKeys: 8, cardinality: 5000},
+	{name: "VeryHighCardinality_Keys", numObjects: 20000, numNS: 1, numKeys: 80, cardinality: 10},
 }
 
 // genObjects deterministically builds cfg.numObjects Labeled objects plus

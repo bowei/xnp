@@ -1,110 +1,118 @@
 # Label equivalence classes
 
-This package is a library for efficently implementing label selection as a primitive.
+This package is a library for efficiently implementing label selection as a primitive.
 
-The library assumes that labels and keys have been interned to a
+The library assumes that labels and keys have been interned to an
 integer value for computational efficiency.
 
-## Performance notes
+## Problem
 
-`eqc_bench_test.go` benchmarks `Add`/`Remove`/`UpdateRelevant` across synthetic
-object distributions that vary partition count/size (`benchConfigs`). Two
-linear scans previously dominated cost at scale and have since been replaced
-with O(1) indexed lookups:
+Given a set of objects (e.g. Pods) that each carry a `LabelSet`, and a fixed
+list of "relevant" label keys (e.g. the keys a NetworkPolicy's selectors can
+ever reference), group the objects by the projection of their labels onto
+those relevant keys. Objects whose relevant-key/value pairs are identical are
+equivalent for selector-matching purposes: any selector either matches all of
+them or none of them. `EqC` maintains that grouping incrementally as objects
+are added, updated, and removed, and as the relevant-key set itself changes.
 
-- **Label-set interning** (`internLabelSet`/`findLabelSetID`) used to find a
-  `LabelSet`'s `LabelSetID` by scanning every previously interned label set
-  and comparing with `slices.Equal`. Cost was O(distinct label sets seen so
-  far) per object, so `Add`/`Remove` degraded to O(n²) as the number of
-  distinct (relevant-projected) label sets grew — e.g. `Add/LowCardinality_4Keys`
-  cost 23,137 ns/obj vs. 215 ns/obj for a config that collapses to one shared
-  group. Fixed by adding `labelSetByKey map[string]LabelSetID`, keyed by a
-  canonical byte encoding of the (already-sorted) `LabelSet` (`LabelSet.key`),
-  making interning/lookup an O(1) map operation.
-- **Object removal/lookup by ID** (`Remove`, `Update`) used to find an object
-  within a namespace by scanning every partition's `objects` slice
-  (`slices.DeleteFunc`/`slices.ContainsFunc`). Cost was O(objects in that
-  namespace) per call, so removing every object from one large shared
-  partition was O(n²) — e.g. `Remove/AllShared_1Key` cost 43,859 ns/obj, worse
-  than any high-cardinality (many small partitions) config. Fixed by adding a
-  `locations map[NsID]map[uint64]objLoc` index recording each object's
-  partition and slice index, updated on `Add`, so `Remove`/`Update` locate an
-  object in O(1) and evict it via swap-delete (`evict`) instead of a scan.
-- `LabelSet.Project` rebuilt a `map[KeyID]bool` of relevant keys on every
-  call, i.e. once per object added/updated/removed, even though the relevant
-  key set only changes on `UpdateRelevant`. `EqC` now precomputes
-  `relevantSet` once (`newRelevantSet`) and reuses it via the internal
-  `EqC.project` helper, cutting one map allocation per object.
+This is the same idea `internal/policy` calls a "label-set identity"
+(`LabelSetID`) — collapsing many replica pods with identical labels down to
+one group so selector evaluation runs once per group instead of once per
+object.
 
-Net effect: per-object cost across all `benchConfigs` is now roughly flat
-(~60-350 ns/obj) regardless of partition count/size, rather than ranging up
-to tens of thousands of ns/obj on skewed distributions. Run
-`go test ./internal/eqc/ -bench=. -benchmem` to reproduce.
+## Data structures
 
-### Allocation-churn cleanup
+- **`LabelSet`** (`types.go`) — a `[]KeyValue` of `(KeyID, ValueID)` pairs,
+  kept sorted in ascending `(K, V)` order as an invariant. Sortedness lets
+  `Values`, `Matches`, and `Project` all run as linear merges instead of
+  per-element scans:
+  - `Matches` treats the receiver as a set of *required* pairs and does a
+    merge-join against a candidate set, matching Kubernetes label-selector
+    semantics (the candidate may carry extra labels).
+  - `Project` (and its allocation-free sibling `appendProjectKey`) filters a
+    `LabelSet` down to only the relevant keys.
+  - `key()` / `appendProjectKey()` encode a `LabelSet` as a fixed-width
+    big-endian byte string (8 bytes per pair: 4 bytes `KeyID` + 4 bytes
+    `ValueID`), giving a canonical, directly-comparable, hashable encoding
+    with no delimiter-escaping concerns — used to content-address a group by
+    its projected labels in O(len) with no intermediate allocation on the
+    common (already-interned) path.
 
-With the two O(n²) scans gone, `-memprofile` on `Add` pointed at the next
-layer down: `LabelSet.Project` and `LabelSet.key` (an intermediate
-projected-`LabelSet` allocation plus a separate byte-key allocation) were
-running once *per object*, even on a cache hit against an already-interned
-group — i.e. even when nothing new needed to be stored.
+- **`LabelSetID`** (`types.go`, `eqc.go`) — a small dense integer assigned the
+  first time a given projected `LabelSet` content is seen
+  (`EqC.internKey`), analogous to `internal/policy`'s identity concept. It's
+  the join key between a `Partition` and the objects that belong to it.
+  Identity is content-addressed, not namespace-scoped: two namespaces whose
+  objects happen to project to the same labels share a `LabelSetID`, though
+  their objects still live in separate per-namespace `Partitions`.
 
-- `EqC.project` reuses a `relevantSet map[KeyID]bool` precomputed once in
-  `New`/`UpdateRelevant`, instead of `LabelSet.Project` rebuilding that map
-  on every call.
-- `Add` now computes the intern-index byte key directly from an object's
-  full (unprojected) `LabelSet` in one pass (`LabelSet.appendProjectKey`),
-  and only materializes the actual projected `LabelSet` (`EqC.project`) the
-  first time a given group is seen (`internKey`'s `isNew`) — every
-  subsequent object landing in an already-seen group costs one map lookup,
-  not two allocations.
-- That byte key is built into a buffer reused across the whole `Add` call
-  (`keyBuf[:0]` each iteration) rather than freshly allocated per object,
-  and the cache-hit map lookup uses the `m[string(byteSlice)]` compiler
-  idiom (https://github.com/golang/go/issues/3512) so it doesn't even pay
-  for a string copy on a hit — only inserting a new group pays for that.
-- `Update`'s unchanged-labels fast path (`LabelSet.projectEquals`) compares
-  an object's projection against its partition's stored labels via a
-  merge-walk, without materializing the projection at all.
-- `internLabelSet`'s old reverse index (`map[LabelSetID]LabelSet`, kept only
-  to hand out fresh IDs via `len()`) was dropped in favor of a plain
-  `nextLabelSetID` counter — nothing did reverse ID→LabelSet lookups, so it
-  was pure duplicate storage of content already held by `labelSetByKey`'s
-  string keys and each partition's `labels`.
+- **`Partition`** (`eqc.go`) — one equivalence class: the shared projected
+  `labels`, its `labelSetID`, and the `[]Labeled` objects currently in it.
+  `Partitions` is `map[LabelSetID]Partition`, and `EqC.partitions` is
+  `map[NsID]Partitions` — objects are grouped by relevant labels *within*
+  each namespace, never across namespaces.
 
-Effect: `AllShared_8Keys` (20,000 objects collapsing into 1 group) went from
-20,172 allocs/op to 171; `AllUnique_4Keys` (every object its own group, so
-some per-object allocation is unavoidable) still dropped from 8,092 to
-6,091.
+- **`labelSetByKey`** (`eqc.go`) — `map[string]LabelSetID`, the intern table
+  mapping a `LabelSet.key()` byte-string to the `LabelSetID` already assigned
+  to that content. Lookups pass a `[]byte` and rely on the Go compiler's
+  zero-allocation `map[string(key)]` idiom, so no allocation happens except
+  on the rare (one-per-distinct-group) insert path.
 
-### Memory footprint
+- **`locations`** (`eqc.go`) — `map[locKey]objLoc` where `locKey = (NsID,
+  object ID)` and `objLoc = (LabelSetID, index within Partition.objects)`.
+  This is what makes `Remove`/`Update` O(1) instead of O(objects): rather than
+  scanning every partition to find an object, its exact slot is looked up
+  directly. Keying on the `(ns, id)` pair rather than nesting per-namespace
+  maps keeps this a single flat map (less overhead across many namespaces)
+  while still handling the documented edge case of the same object ID
+  appearing in two namespaces independently.
 
-Speed fixes here are explicitly a memory-for-speed trade: `locations`
-(`EqC`'s O(1) removal/update index) holds one entry per *live object*, not
-per group, so it's the structure's memory floor regardless of how much
-objects collapse into shared partitions. It's keyed on `{namespace, object
-ID}` rather than nested per-namespace maps — one flat map has less baseline
-overhead than many small ones when there are many namespaces, and keying on
-the pair (not just ID) preserves the property that the same object ID left
-behind in two namespaces (Update's documented caller-error case — see its
-doc comment) is tracked independently in each, rather than one clobbering
-the other's location and orphaning it un-removably.
+## Algorithms
 
-`TestMemoryFootprint` (`go test ./internal/eqc/ -run TestMemoryFootprint
--v`) snapshots `runtime.MemStats.HeapAlloc` before/after building an `EqC`
-from each `benchConfigs` distribution (after GC-settling the input objects
-themselves, so the number isolates EqC's own bookkeeping) and reports
-bytes retained per object:
+- **Add** — for each object, project its labels onto the relevant-key set
+  and intern the projection to a `LabelSetID` (`internKey`, O(len(labels))
+  with an O(1) amortized map lookup). The object is appended to that
+  `LabelSetID`'s `Partition` within its namespace, and `locations` records
+  where it landed. Only the *first* object to establish a new group pays the
+  cost of materializing the projected `LabelSet` for `Partition.labels`;
+  every subsequent object in the same group reuses it.
 
-| distinction | bytes/object |
+- **Remove** — O(1) swap-and-truncate eviction (`evict`): look up the
+  object's slot via `locations`, swap the last element of its `Partition`'s
+  slice into that slot (fixing up the moved object's recorded index), and
+  truncate. Emptied partitions/namespaces are pruned from the maps so
+  iteration cost tracks live groups, not historical ones.
+
+- **Update** — look up the object's current partition and compare its
+  freshly projected labels against `Partition.labels` (`projectEquals`, which
+  checks equality without materializing the projection). If unchanged, the
+  object is swapped in place at its existing slot — the common case, and the
+  reason `Partition.Labels()` is documented as "the projection frozen at Add
+  time": it lets Update detect drift without needing the object's prior
+  label state. If the projection changed, the object is evicted and
+  re-added, which may land it in a new or newly-created group.
+
+- **UpdateRelevant** — changing which keys are relevant can both merge
+  partitions (a dropped key may make two previously-distinct groups project
+  identically) and split them (an added key may distinguish previously-
+  identical objects). Rather than incrementally reconciling, this collects
+  every currently-tracked object, resets all indexes (`partitions`,
+  `labelSetByKey`, `locations`, the `LabelSetID` counter), and re-`Add`s
+  everything under the new projection — O(objects), but correctness-simple
+  and infrequent (the relevant-key set changes only when policy-referenced
+  label keys change, not per object).
+
+## Complexity summary
+
+| Operation | Cost |
 |---|---|
-| all objects collapse into 1 group (`AllShared_1Key`/`AllShared_8Keys`) | ~66-68 |
-| a handful of shared groups (`ManyNamespaces_Shared`, 16 groups) | ~95 |
-| every object its own group (`AllUnique_4Keys`, `HighCardinality_4Keys`) | ~290-360 |
+| `Add` (n objects) | O(n · k) where k = labels per object |
+| `Remove` / per-object `Update` (no group change) | O(1) amortized |
+| `Update` (group change) | O(k) (evict + re-add) |
+| `UpdateRelevant` | O(N · k) over all N tracked objects |
 
-The gap between the floor (~66) and the high-cardinality ceiling (~360) is
-the `labelSetByKey` string key plus the `Partitions`/`Partition.objects`
-map-and-slice entries a distinct group needs; `locations` alone accounts
-for the floor. For a relevant-key selection that keeps cardinality low
-(few distinct groups relative to object count), memory stays close to the
-floor regardless of how many objects there are.
+## Possible future improvement
+
+`Partition.objects` is a plain `[]Labeled`. A noted future direction is to
+back partitions with Roaring bitmaps instead, once objects are represented by
+dense integer IDs, to shrink memory further at very large object counts.
