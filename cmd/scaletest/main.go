@@ -58,9 +58,9 @@ func renderCmd() *cobra.Command {
 		Short: "Generate a synthetic namespace/pod/policy set and render it",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch renderer {
-			case "basic", "parallel", "indexed", "indexed-parallel", "compact":
+			case "basic", "parallel", "indexed", "indexed-parallel":
 			default:
-				return fmt.Errorf("--renderer must be one of %q, %q, %q, %q, %q, got %q", "basic", "parallel", "indexed", "indexed-parallel", "compact", renderer)
+				return fmt.Errorf("--renderer must be one of %q, %q, %q, %q, got %q", "basic", "parallel", "indexed", "indexed-parallel", renderer)
 			}
 
 			if cpuProfile != "" {
@@ -95,24 +95,6 @@ func renderCmd() *cobra.Command {
 			if err != nil {
 				stopMem()
 				return fmt.Errorf("convert: %w", err)
-			}
-
-			if renderer == "compact" {
-				start = time.Now()
-				out, err := policy.RenderCompact(in)
-				renderDur := time.Since(start)
-				mem := stopMem()
-				if err != nil {
-					return fmt.Errorf("render: %w", err)
-				}
-
-				if err := writeMemProfile(memProfile); err != nil {
-					return err
-				}
-
-				report := scaletest.SummarizeCompact(tc, out, genDur, convDur, renderDur, mem)
-				_, err = fmt.Fprint(cmd.OutOrStdout(), report.String())
-				return err
 			}
 
 			var tupleStore store.Store
@@ -160,7 +142,7 @@ func renderCmd() *cobra.Command {
 	flags.Int64Var(&cfg.Seed, "seed", def.Seed, "random seed; the same seed always generates the same test case")
 	flags.IntVar(&cfg.LabelCardinality, "label-cardinality", def.LabelCardinality, "distinct label values pods/namespaces are drawn from (lower = broader selector matches)")
 	flags.StringVar(&cfg.PodCIDR, "pod-cidr", def.PodCIDR, "CIDR range pod IPs are allocated from")
-	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic", "parallel", "indexed", "indexed-parallel", or "compact" (reports template-dictionary/node-chunk sizing instead of tuple counts; ignores --null-store)`)
+	flags.StringVar(&renderer, "renderer", "basic", `renderer to use: "basic", "parallel", "indexed", or "indexed-parallel"`)
 	flags.IntVar(&workers, "workers", 0, "worker goroutines for --renderer=parallel or --renderer=indexed-parallel (<=0 means runtime.GOMAXPROCS(0))")
 	flags.StringVar(&cpuProfile, "cpuprofile", "", "write a CPU profile to this file")
 	flags.StringVar(&memProfile, "memprofile", "", "write a heap profile to this file after rendering")
