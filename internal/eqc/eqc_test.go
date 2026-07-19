@@ -1,19 +1,20 @@
 package eqc
 
 import (
-	"slices"
 	"testing"
+
+	"github.com/bowei/xnp/internal/labels"
 )
 
 type testObj struct {
 	id     uint64
 	ns     NsID
-	labels LabelSet
+	labels labels.Set
 }
 
-func (o testObj) ID() uint64       { return o.id }
-func (o testObj) Namespace() NsID  { return o.ns }
-func (o testObj) Labels() LabelSet { return o.labels }
+func (o testObj) ID() uint64         { return o.id }
+func (o testObj) Namespace() NsID    { return o.ns }
+func (o testObj) Labels() labels.Set { return o.labels }
 
 const (
 	keyApp KeyID = iota + 1
@@ -35,9 +36,9 @@ const (
 func TestAdd_CollapsesByRelevantLabels(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valProd)}
-	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valStaging)}
-	o3 := testObj{id: 3, ns: ns1, labels: MakeLabelSet(keyApp, valDB, keyEnv, valProd)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valProd)}
+	o2 := testObj{id: 2, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valStaging)}
+	o3 := testObj{id: 3, ns: ns1, labels: labels.MakeSet(keyApp, valDB, keyEnv, valProd)}
 	c.Add([]Labeled{o1, o2, o3})
 
 	partitions := c.partitions[ns1]
@@ -61,8 +62,8 @@ func TestAdd_CollapsesByRelevantLabels(t *testing.T) {
 func TestAdd_NamespaceIsolation(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
-	o2 := testObj{id: 2, ns: ns2, labels: MakeLabelSet(keyApp, valWeb)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
+	o2 := testObj{id: 2, ns: ns2, labels: labels.MakeSet(keyApp, valWeb)}
 	c.Add([]Labeled{o1, o2})
 
 	if len(c.partitions) != 2 {
@@ -90,8 +91,8 @@ func TestAdd_NamespaceIsolation(t *testing.T) {
 func TestRemove(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
-	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
+	o2 := testObj{id: 2, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
 	c.Add([]Labeled{o1, o2})
 
 	c.Remove([]Labeled{o1})
@@ -114,18 +115,18 @@ func TestRemove(t *testing.T) {
 func TestUpdate_MovesPartitionWhenRelevantLabelsChange(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
-	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
+	o2 := testObj{id: 2, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
 	c.Add([]Labeled{o1, o2})
 
-	relabeled := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valDB)}
+	relabeled := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valDB)}
 	c.Update([]Labeled{relabeled})
 
 	partitions := c.partitions[ns1]
 	if len(partitions) != 2 {
 		t.Fatalf("got %d partitions after moving one object, want 2 (app=web, app=db)", len(partitions))
 	}
-	dbID, ok := c.findLabelSetID(MakeLabelSet(keyApp, valDB))
+	dbID, ok := c.findLabelSetID(labels.MakeSet(keyApp, valDB))
 	if !ok {
 		t.Fatalf("no partition found for app=db")
 	}
@@ -138,10 +139,10 @@ func TestUpdate_MovesPartitionWhenRelevantLabelsChange(t *testing.T) {
 func TestUpdate_InPlaceWhenRelevantLabelsUnchanged(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valProd)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valProd)}
 	c.Add([]Labeled{o1})
 
-	relabeled := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valStaging)}
+	relabeled := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valStaging)}
 	c.Update([]Labeled{relabeled})
 
 	partitions := c.partitions[ns1]
@@ -152,7 +153,7 @@ func TestUpdate_InPlaceWhenRelevantLabelsUnchanged(t *testing.T) {
 		if len(p.Objects()) != 1 {
 			t.Fatalf("partition has %d objects, want 1", len(p.Objects()))
 		}
-		if !slices.Equal(p.Objects()[0].Labels(), relabeled.labels) {
+		if !p.Objects()[0].Labels().Equal(relabeled.labels) {
 			t.Fatalf("stored object labels = %v, want the updated full label set %v", p.Objects()[0].Labels(), relabeled.labels)
 		}
 	}
@@ -161,7 +162,7 @@ func TestUpdate_InPlaceWhenRelevantLabelsUnchanged(t *testing.T) {
 func TestUpdate_AddsUntrackedObject(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb)}
 	c.Update([]Labeled{o1})
 
 	partitions := c.partitions[ns1]
@@ -178,8 +179,8 @@ func TestUpdate_AddsUntrackedObject(t *testing.T) {
 func TestUpdateRelevant_MergesPartitions(t *testing.T) {
 	c := New([]KeyID{keyApp, keyEnv})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valProd)}
-	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valStaging)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valProd)}
+	o2 := testObj{id: 2, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valStaging)}
 	c.Add([]Labeled{o1, o2})
 
 	if len(c.partitions[ns1]) != 2 {
@@ -202,8 +203,8 @@ func TestUpdateRelevant_MergesPartitions(t *testing.T) {
 func TestUpdateRelevant_SplitsPartitions(t *testing.T) {
 	c := New([]KeyID{keyApp})
 
-	o1 := testObj{id: 1, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valProd)}
-	o2 := testObj{id: 2, ns: ns1, labels: MakeLabelSet(keyApp, valWeb, keyEnv, valStaging)}
+	o1 := testObj{id: 1, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valProd)}
+	o2 := testObj{id: 2, ns: ns1, labels: labels.MakeSet(keyApp, valWeb, keyEnv, valStaging)}
 	c.Add([]Labeled{o1, o2})
 
 	if len(c.partitions[ns1]) != 1 {

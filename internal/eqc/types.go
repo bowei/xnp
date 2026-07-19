@@ -18,21 +18,7 @@ type KeyID = intern.ID
 type ValueID = intern.ID
 
 const (
-	NoNS    NsID    = math.MaxUint32
-	NoValue ValueID = math.MaxUint32
+	NoNS NsID = math.MaxUint32
 )
 
 type LabelSetID uint64
-
-// KeyValue is a key/value label pair, packed into a single comparable,
-// hashable, sortable intern.Pair (key in the high bits so sorting by
-// KeyValue also sorts by key first).
-type KeyValue intern.Pair
-
-func (p KeyValue) K() KeyID   { return KeyID(intern.Pair(p).Key()) }
-func (p KeyValue) V() ValueID { return ValueID(intern.Pair(p).Value()) }
-
-// KV makes examples more readable.
-func KV(k KeyID, v ValueID) KeyValue {
-	return KeyValue(intern.NewPair(intern.ID(k), intern.ID(v)))
-}

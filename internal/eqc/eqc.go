@@ -1,9 +1,11 @@
 package eqc
 
+import "github.com/bowei/xnp/internal/labels"
+
 type Labeled interface {
 	ID() uint64
 	Namespace() NsID
-	Labels() LabelSet
+	Labels() labels.Set
 }
 
 // EqC are equivalence classes: tracks dividing resources into equivalece
@@ -51,14 +53,14 @@ type objLoc struct {
 type Partitions map[LabelSetID]Partition
 
 type Partition struct {
-	labels     LabelSet
+	labels     labels.Set
 	labelSetID LabelSetID
 	objects    []Labeled
 }
 
 // Labels is the (relevant-projected) LabelSet shared by every object in
 // this Partition.
-func (p Partition) Labels() LabelSet { return p.labels }
+func (p Partition) Labels() labels.Set { return p.labels }
 
 // LabelSetID is the identity assigned to p.Labels().
 func (p Partition) LabelSetID() LabelSetID { return p.labelSetID }
@@ -86,26 +88,13 @@ func newRelevantSet(relevant []KeyID) map[KeyID]bool {
 	return set
 }
 
-// project is the internal equivalent of LabelSet.Project(c.relevant),
-// using the precomputed c.relevantSet instead of rebuilding a key set on
-// every call — relevant only changes on UpdateRelevant, not per object.
-func (c *EqC) project(s LabelSet) LabelSet {
-	out := make(LabelSet, 0, len(s))
-	for _, kv := range s {
-		if c.relevantSet[kv.K()] {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
-
 // Add objects to the EqC, splitting the objects based on their
 // relevant Labels.
 func (c *EqC) Add(objects []Labeled) {
 	var keyBuf []byte
 	for _, o := range objects {
-		labels := o.Labels()
-		keyBuf = labels.appendProjectKey(keyBuf[:0], c.relevantSet)
+		ls := o.Labels()
+		keyBuf = ls.AppendProjectKey(keyBuf[:0], c.relevantSet)
 		id, isNew := c.internKey(keyBuf)
 
 		ns := o.Namespace()
@@ -120,7 +109,7 @@ func (c *EqC) Add(objects []Labeled) {
 			// Only the first object seen for this group needs to pay
 			// for materializing the projected LabelSet; every later
 			// object in the same group just reuses p.labels.
-			p.labels = c.project(labels)
+			p.labels = ls.ProjectRelevant(c.relevantSet)
 			p.labelSetID = id
 		}
 		p.objects = append(p.objects, o)
@@ -148,7 +137,7 @@ func (c *EqC) Update(objects []Labeled) {
 
 		nsPartitions := c.partitions[ns]
 		p := nsPartitions[loc.labelSetID]
-		if o.Labels().projectEquals(c.relevantSet, p.labels) {
+		if o.Labels().ProjectEquals(c.relevantSet, p.labels) {
 			p.objects[loc.idx] = o
 			nsPartitions[loc.labelSetID] = p
 			continue
@@ -203,7 +192,7 @@ func (c *EqC) evict(ns NsID, id uint64, loc objLoc) {
 //
 // * Labels that have been removed can cause Partitions to be merged
 // * Labels that have been added can cause Partitions to be split.
-func (c *EqC) UpdateRelevant(labels []KeyID) {
+func (c *EqC) UpdateRelevant(keys []KeyID) {
 	var all []Labeled
 	for _, nsPartitions := range c.partitions {
 		for _, p := range nsPartitions {
@@ -211,8 +200,8 @@ func (c *EqC) UpdateRelevant(labels []KeyID) {
 		}
 	}
 
-	c.relevant = append([]KeyID(nil), labels...)
-	c.relevantSet = newRelevantSet(labels)
+	c.relevant = append([]KeyID(nil), keys...)
+	c.relevantSet = newRelevantSet(keys)
 	c.partitions = map[NsID]Partitions{}
 	c.nextLabelSetID = 0
 	c.labelSetByKey = map[string]LabelSetID{}
@@ -233,18 +222,18 @@ func (c *EqC) Range() func(yield func(NsID, Partitions) bool) {
 
 // findLabelSetID returns the LabelSetID already assigned to ls's content,
 // if any.
-func (c *EqC) findLabelSetID(ls LabelSet) (LabelSetID, bool) {
-	id, ok := c.labelSetByKey[ls.key()]
+func (c *EqC) findLabelSetID(ls labels.Set) (LabelSetID, bool) {
+	id, ok := c.labelSetByKey[ls.Key()]
 	return id, ok
 }
 
 // internKey returns the LabelSetID already assigned to the content
-// encoded by key (see LabelSet.key / LabelSet.projectKey), allocating a
-// new one the first time this exact (relevant-projected) label set is
-// seen and reporting isNew so the caller knows whether it still needs to
-// materialize/store the actual LabelSet. Identity is content-addressed,
-// not namespace-scoped: two namespaces with the same projected labels
-// share a LabelSetID.
+// encoded by key (see labels.Set.Key / labels.Set.AppendProjectKey),
+// allocating a new one the first time this exact (relevant-projected)
+// label set is seen and reporting isNew so the caller knows whether it
+// still needs to materialize/store the actual LabelSet. Identity is
+// content-addressed, not namespace-scoped: two namespaces with the same
+// projected labels share a LabelSetID.
 //
 // The map lookup on `string(key)` is the compiler's well-known
 // zero-allocation idiom for []byte-keyed map reads (see

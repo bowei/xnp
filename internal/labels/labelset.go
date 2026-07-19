@@ -3,10 +3,15 @@ package labels
 import (
 	"encoding/binary"
 	"hash/fnv"
+	"math"
 	"slices"
 
 	"github.com/bowei/xnp/internal/intern"
 )
+
+// noValue fills the value half of an unpaired trailing key passed to
+// MakeSet.
+const noValue intern.ID = math.MaxUint32
 
 // Set is a pod's or namespace's labels canonicalized into interned
 // integer form: kv gives O(1) key lookup, sorted gives a canonical,
@@ -22,6 +27,24 @@ func Make(labels map[string]string, tbl *intern.Table) Set {
 	for k, v := range labels {
 		key, val := tbl.Intern(k), tbl.Intern(v)
 		sorted = append(sorted, intern.NewPair(key, val))
+	}
+	slices.Sort(sorted)
+	return Set{sorted: sorted}
+}
+
+// MakeSet is a test/benchmark helper that builds a Set directly from
+// alternating key, value, key, value, ... intern.IDs, without needing an
+// intern.Table. If called with a trailing, unpaired key, that last pair's
+// value is noValue.
+func MakeSet(kvs ...intern.ID) Set {
+	sorted := make([]intern.Pair, 0, (len(kvs)+1)/2)
+	for i := 0; i < len(kvs); i += 2 {
+		k := kvs[i]
+		v := noValue
+		if i+1 < len(kvs) {
+			v = kvs[i+1]
+		}
+		sorted = append(sorted, intern.NewPair(k, v))
 	}
 	slices.Sort(sorted)
 	return Set{sorted: sorted}
@@ -43,8 +66,8 @@ func (s Set) Len() int {
 }
 
 // At returns the i'th key/value pair, in the canonical sorted (K, V) order
-// LabelSet maintains. Lets external packages (e.g. an eqc.LabelSet adapter)
-// walk a LabelSet's content without repr exposing its internal kvPair type.
+// Set maintains. Lets external packages walk a Set's content without this
+// package exposing its internal intern.Pair representation.
 func (s Set) At(i int) (key, value intern.ID) {
 	kv := s.sorted[i]
 	return kv.Key(), kv.Value()
@@ -100,9 +123,17 @@ func (s Set) Project(relevant []intern.ID) Set {
 	for _, k := range relevant {
 		want[k] = true
 	}
+	return s.ProjectRelevant(want)
+}
+
+// ProjectRelevant is equivalent to Project, but takes an already-built
+// relevant-keys set instead of rebuilding one from a key list on every
+// call — for callers (e.g. eqc.EqC) that project the same relevant set
+// repeatedly and can amortize building it once.
+func (s Set) ProjectRelevant(relevantSet map[intern.ID]bool) Set {
 	out := Set{}
 	for _, kv := range s.sorted {
-		if want[kv.Key()] {
+		if relevantSet[kv.Key()] {
 			out.sorted = append(out.sorted, kv)
 		}
 	}

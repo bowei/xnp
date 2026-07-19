@@ -15,9 +15,9 @@ type podLabeled struct {
 	idx int
 }
 
-func (o *podLabeled) ID() uint64           { return podID(o.p) }
-func (o *podLabeled) Namespace() eqc.NsID  { return eqc.NsID(o.p.Namespace) } // both plain uint32s
-func (o *podLabeled) Labels() eqc.LabelSet { return labelSetToEqC(o.p.Labels) }
+func (o *podLabeled) ID() uint64          { return podID(o.p) }
+func (o *podLabeled) Namespace() eqc.NsID { return eqc.NsID(o.p.Namespace) } // both plain uint32s
+func (o *podLabeled) Labels() labels.Set  { return o.p.Labels }
 
 // podID derives a stable identity for a pod from its namespace/name, which
 // (unlike repr.Pod, which has no numeric ID field) is guaranteed unique
@@ -31,19 +31,6 @@ func podID(p *repr.Pod) uint64 {
 	h.Write(b[:])
 	h.Write([]byte(p.Name))
 	return h.Sum64()
-}
-
-// labelSetToEqC converts a labelset.LabelSet into eqc.LabelSet form. Both
-// types maintain the same invariant (entries sorted ascending by (key,
-// value)), so this is a straight element-wise conversion via
-// labelset.LabelSet.At.
-func labelSetToEqC(ls labels.Set) eqc.LabelSet {
-	out := make(eqc.LabelSet, ls.Len())
-	for i := range out {
-		k, v := ls.At(i)
-		out[i] = eqc.KV(eqc.KeyID(k), eqc.ValueID(v))
-	}
-	return out
 }
 
 // referencedKeys collects every label key any compiled selector in reg

@@ -4,6 +4,9 @@ import (
 	"math/rand"
 	"runtime"
 	"testing"
+
+	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/labels"
 )
 
 // benchConfig describes one synthetic input distribution. The axes that
@@ -84,7 +87,7 @@ func genObjects(cfg benchConfig) (objects []Labeled, relevant []KeyID) {
 
 	objects = make([]Labeled, cfg.numObjects)
 	for i := 0; i < cfg.numObjects; i++ {
-		kvs := make([]any, 0, 2*(cfg.numKeys+cfg.noiseKeys+1))
+		kvs := make([]intern.ID, 0, 2*(cfg.numKeys+cfg.noiseKeys+1))
 		for k := 0; k < cfg.numKeys; k++ {
 			kvs = append(kvs, KeyID(k+1), relevantValue())
 		}
@@ -97,7 +100,7 @@ func genObjects(cfg benchConfig) (objects []Labeled, relevant []KeyID) {
 		objects[i] = testObj{
 			id:     uint64(i + 1),
 			ns:     NsID(1 + i%cfg.numNS),
-			labels: MakeLabelSet(kvs...),
+			labels: labels.MakeSet(kvs...),
 		}
 	}
 	return objects, relevant
@@ -152,15 +155,16 @@ func genUpdatedObjects(cfg benchConfig, objects []Labeled) []Labeled {
 	updated := make([]Labeled, len(objects))
 	for i, o := range objects {
 		old := o.Labels()
-		labels := make(LabelSet, len(old))
-		copy(labels, old)
-		for j := range labels {
-			if int(labels[j].K()) <= cfg.numKeys {
-				labels[j] = KV(labels[j].K(), labels[j].V()+1)
+		kvs := make([]intern.ID, 0, old.Len()*2)
+		for j := 0; j < old.Len(); j++ {
+			k, v := old.At(j)
+			if int(k) <= cfg.numKeys {
+				v++
 			}
+			kvs = append(kvs, k, v)
 		}
 		to := o.(testObj)
-		to.labels = labels
+		to.labels = labels.MakeSet(kvs...)
 		updated[i] = to
 	}
 	return updated
