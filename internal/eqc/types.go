@@ -5,18 +5,20 @@ import (
 	"math"
 	"slices"
 	"sort"
+
+	"github.com/bowei/xnp/internal/intern"
 )
 
 // Later improvement: change to RoaringSets
 
 // NsID is the unique integer for a Namespace.
-type NsID uint32
+type NsID intern.ID
 
 // KeyID is the unique integer for a given label key.
-type KeyID uint32
+type KeyID intern.ID
 
 // ValueID is the unique integer for a given label value.
-type ValueID uint32
+type ValueID intern.ID
 
 const (
 	NoNS    NsID    = math.MaxUint32
