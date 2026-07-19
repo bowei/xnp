@@ -170,7 +170,7 @@ func prepareIndexedRender(in *common.Input) (*indexedState, error) {
 	podsByNS := map[intern.ID]map[eqc.LabelSetID][]*repr.Pod{}
 	identitiesByNS := map[intern.ID][]eqc.LabelSetID{}
 	for ns, parts := range eqIndex.Range() {
-		rns := eqcToNS(ns)
+		rns := intern.ID(ns) // eqc.NsID and intern.ID are both plain uint32s
 		byID := make(map[eqc.LabelSetID][]*repr.Pod, len(parts))
 		ids := make([]eqc.LabelSetID, 0, len(parts))
 		for id, p := range parts {

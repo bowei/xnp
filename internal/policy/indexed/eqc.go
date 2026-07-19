@@ -33,7 +33,7 @@ type podLabeled struct {
 }
 
 func (o *podLabeled) ID() uint64           { return podID(o.p) }
-func (o *podLabeled) Namespace() eqc.NsID  { return nsToEqC(o.p.Namespace) }
+func (o *podLabeled) Namespace() eqc.NsID  { return eqc.NsID(o.p.Namespace) } // both plain uint32s
 func (o *podLabeled) Labels() eqc.LabelSet { return labelSetToEqC(o.p.Labels) }
 
 // podID derives a stable identity for a pod from its namespace/name, which
@@ -47,13 +47,6 @@ func podID(p *repr.Pod) uint64 {
 	h.Write([]byte(p.Name))
 	return h.Sum64()
 }
-
-// nsToEqC/eqcToNS convert between repr's namespace intern.ID and eqc's NsID.
-// The +1 offset avoids colliding with eqc.NoNS (0): intern.Table, like eqc's
-// own ID allocators, assigns 0 to the first interned string, and a real
-// namespace must never be mistaken for eqc's "no namespace" sentinel.
-func nsToEqC(ns intern.ID) eqc.NsID { return eqc.NsID(ns) + 1 }
-func eqcToNS(id eqc.NsID) intern.ID { return intern.ID(id - 1) }
 
 // labelSetToEqC converts a repr.LabelSet into eqc.LabelSet form. Both types
 // maintain the same invariant (entries sorted ascending by (key, value)), so
