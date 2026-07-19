@@ -35,6 +35,14 @@ func (ls LabelSet) Len() int {
 	return len(ls.sorted)
 }
 
+// At returns the i'th key/value pair, in the canonical sorted (K, V) order
+// LabelSet maintains. Lets external packages (e.g. an eqc.LabelSet adapter)
+// walk a LabelSet's content without repr exposing its internal kvPair type.
+func (ls LabelSet) At(i int) (key, value StringID) {
+	kv := ls.sorted[i]
+	return kv.key(), kv.value()
+}
+
 // Hash that can be used to put into a map key.
 func (ls LabelSet) Hash() uint64 {
 	return hashLabelKV(ls.sorted)

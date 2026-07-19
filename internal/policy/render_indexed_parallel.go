@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/bowei/xnp/internal/eqc"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
@@ -53,7 +54,7 @@ func RenderIndexedParallel(in *Input, s store.Store, workers int) error {
 
 // distinctGroups returns the (namespace, identity) groups sortedPods touch,
 // in first-seen order, plus each pod's index into that slice.
-func distinctGroups(sortedPods []repr.Pod, podIdentity []repr.LabelSetID) (groups []groupKey, groupIndex []int) {
+func distinctGroups(sortedPods []repr.Pod, podIdentity []eqc.LabelSetID) (groups []groupKey, groupIndex []int) {
 	seen := map[groupKey]int{}
 	groupIndex = make([]int, len(sortedPods))
 	for i, pod := range sortedPods {

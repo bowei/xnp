@@ -111,6 +111,46 @@ object.
 | `Update` (group change) | O(k) (evict + re-add) |
 | `UpdateRelevant` | O(N · k) over all N tracked objects |
 
+## Benchmarks
+
+`eqc_bench_test.go`'s `benchConfigs` drives every `Benchmark*` and
+`TestMemoryFootprint` across a shared set of synthetic input shapes
+(`genObjects`), varying object count, namespace count, relevant-key count,
+per-key cardinality, noise-label count, forced-unique keys, and (for the
+skewed configs) a Zipfian rather than uniform value distribution. Beyond the
+baseline shapes, several configs specifically target pathological scaling
+behavior, each stressing a different part of the data structures above:
+
+- **`LargeSingleNamespace`** / **`GiantSinglePartition`** — 200k objects (10x
+  the baseline max) in one namespace. `LargeSingleNamespace` still fragments
+  into near-unique groups (high `numKeys`/`cardinality`), while
+  `GiantSinglePartition` (`numKeys: 1, cardinality: 1`) forces every object
+  into *one* `Partition`, exercising `evict`'s swap-and-truncate and the
+  `[]Labeled` slice's growth-by-append on a genuinely huge slice.
+- **`VeryHighCardinality_1Key`** / **`VeryHighCardinality_KeysAndValues`** /
+  **`VeryHighCardinality_Keys`** — push per-key value cardinality (5000) and
+  relevant-key count (80) an order of magnitude past the baseline max,
+  independently and combined, stressing `labelSetByKey`'s intern table with
+  many/long content-addressed keys (`LabelSet.key()` is 8 bytes per pair, so
+  80 keys means a 640-byte map key) and `partitions`' per-namespace map with
+  many distinct `LabelSetID`s.
+- **`SkewedCardinality_HotPartition`** — samples relevant-key values from a
+  Zipfian distribution (`rand.NewZipf`) instead of uniform, so one dominant
+  value produces a "hot" partition alongside a long tail of near-singleton
+  ones in the same namespace. Uniform-cardinality configs never produce this
+  shape: they're either all-shared or all-fragmented, never both at once.
+- **`NamespaceFragmentation_OnePerNS`** — `numNS` ≈ `numObjects` (one object
+  per namespace), the opposite extreme from `LargeSingleNamespace`/`AllShared_*`.
+  Stresses `partitions`' outer `map[NsID]Partitions` having a huge count of
+  single-entry inner maps, which is particularly costly for
+  `UpdateRelevant`'s nested `for ns { for partition }` collection loop (many
+  tiny map iterations instead of few large ones).
+- **`NoiseDominated_ManyLabels`** — a small relevant-key count but 300 noise
+  labels per object. `project`/`appendProjectKey` scan *every* label on an
+  object to find the relevant ones, so cost tracks total label count, not
+  just relevant-key count; this isolates that cost from the relevant-key
+  axis the other configs vary.
+
 ## Possible future improvement
 
 `Partition.objects` is a plain `[]Labeled`. A noted future direction is to

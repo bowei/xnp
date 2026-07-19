@@ -17,55 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// LabelSetID is a dense integer identity for a canonical LabelSet: replicas
-// from the same ReplicaSet/Deployment have identical labels, so selector
-// evaluation can run once per identity instead of once per pod.
-type LabelSetID uint32
-
-// IdentityAllocator maps canonical LabelSets to dense LabelSetIDs, collapsing
-// repeated label sets (the common case) onto a single ID.
-type IdentityAllocator struct {
-	byHash map[uint64]LabelSetID
-	sets   []LabelSet
-}
-
-func NewIdentityAllocator() *IdentityAllocator {
-	return &IdentityAllocator{byHash: map[uint64]LabelSetID{}}
-}
-
-// Intern returns the LabelSetID for ls's content, allocating a new one the
-// first time this exact label set is seen.
-func (a *IdentityAllocator) Intern(ls LabelSet) LabelSetID {
-	h := hashLabelKV(ls.sorted)
-	// Hash collisions between distinct label sets would incorrectly merge
-	// identities; guard with full equality and linear-probe past a
-	// collision.
-	for {
-		id, ok := a.byHash[h]
-		if !ok {
-			break
-		}
-		if labelKVEqual(a.sets[id].sorted, ls.sorted) {
-			return id
-		}
-		h++
-	}
-	id := LabelSetID(len(a.sets))
-	a.sets = append(a.sets, ls)
-	a.byHash[h] = id
-	return id
-}
-
-// Get returns the LabelSet previously allocated as id.
-func (a *IdentityAllocator) Get(id LabelSetID) LabelSet {
-	return a.sets[id]
-}
-
-// Len is the number of distinct identities allocated so far.
-func (a *IdentityAllocator) Len() int {
-	return len(a.sets)
-}
-
 func hashLabelKV(sorted []kvPair) uint64 {
 	h := fnv.New64a()
 	var b [8]byte
@@ -126,6 +77,28 @@ type CompiledSelector struct {
 // Exists) a matching label set must satisfy.
 func (cs CompiledSelector) positiveCount() int {
 	return len(cs.exact) + len(cs.existsKeys)
+}
+
+// Keys returns every label key cs references, across its exact, Exists, and
+// residual (NotIn/DoesNotExist/multi-value-In) requirements, deduplicated.
+// Lets external packages determine which keys are "relevant" to selector
+// matching without depending on repr's internal compiled form.
+func (cs CompiledSelector) Keys() []StringID {
+	seen := make(map[StringID]struct{}, len(cs.exact)+len(cs.existsKeys)+len(cs.residual))
+	for _, e := range cs.exact {
+		seen[e.key()] = struct{}{}
+	}
+	for _, k := range cs.existsKeys {
+		seen[k] = struct{}{}
+	}
+	for _, r := range cs.residual {
+		seen[r.key] = struct{}{}
+	}
+	keys := make([]StringID, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // CompileSelector converts sel into compiled form, interning every key/value

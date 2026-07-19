@@ -8,6 +8,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/bowei/xnp/internal/eqc"
 	"github.com/bowei/xnp/internal/repr"
 	"github.com/bowei/xnp/internal/store"
 	"github.com/bowei/xnp/internal/tuple"
@@ -100,7 +101,7 @@ func RenderIndexed(in *Input, s store.Store) error {
 // resolves to the same ingress/egress templates.
 type groupKey struct {
 	ns repr.StringID
-	id repr.LabelSetID
+	id eqc.LabelSetID
 }
 
 // indexedState holds every structure RenderIndexed builds once up front —
@@ -111,13 +112,13 @@ type groupKey struct {
 type indexedState struct {
 	in                  *Input
 	sortedPods          []repr.Pod
-	podIdentity         []repr.LabelSetID
+	podIdentity         []eqc.LabelSetID
 	policiesByNamespace map[repr.StringID][]int
 	policySelector      []repr.SelectorID // indexed by position in in.Policies
 	registry            *repr.SelectorRegistry
-	matchedByIdentity   []repr.Bitset
-	identitiesByNS      map[repr.StringID][]repr.LabelSetID
-	podsByNS            map[repr.StringID]map[repr.LabelSetID][]repr.Pod
+	matchedByIdentity   map[eqc.LabelSetID]repr.Bitset
+	identitiesByNS      map[repr.StringID][]eqc.LabelSetID
+	podsByNS            map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod
 	nsIndex             *repr.NamespaceSelectorCache
 }
 
@@ -141,37 +142,61 @@ func prepareIndexedRender(in *Input) (*indexedState, error) {
 	}
 	index := repr.BuildInvertedIndex(registry.All())
 
-	identities := repr.NewIdentityAllocator()
-	podIdentity := make([]repr.LabelSetID, len(sortedPods))
-	podsByNS := map[repr.StringID]map[repr.LabelSetID][]repr.Pod{}
-	for i, pod := range sortedPods {
-		id := identities.Intern(pod.Labels)
-		podIdentity[i] = id
-		byID := podsByNS[pod.Namespace]
-		if byID == nil {
-			byID = map[repr.LabelSetID][]repr.Pod{}
-			podsByNS[pod.Namespace] = byID
-		}
-		byID[id] = append(byID[id], pod)
+	// Pods are grouped into (namespace, identity) partitions by eqc.EqC
+	// instead of repr's old one-off IdentityAllocator: EqC projects each
+	// pod's labels onto only the keys any selector references
+	// (referencedKeys) before interning, so pods that differ solely in
+	// labels no selector inspects still collapse into one identity — a
+	// strictly finer (or equal) collapse than IdentityAllocator's
+	// full-label-set keying, since selector matching (via index.Match
+	// below) never looks past those same relevant keys anyway.
+	refs := make([]podLabeled, len(sortedPods))
+	labeled := make([]eqc.Labeled, len(sortedPods))
+	for i := range sortedPods {
+		refs[i] = podLabeled{p: &sortedPods[i], idx: i}
+		labeled[i] = &refs[i]
 	}
-	identitiesByNS := map[repr.StringID][]repr.LabelSetID{}
-	for ns, byID := range podsByNS {
-		ids := make([]repr.LabelSetID, 0, len(byID))
-		for id := range byID {
+	eqIndex := eqc.New(referencedKeys(registry))
+	eqIndex.Add(labeled)
+
+	podIdentity := make([]eqc.LabelSetID, len(sortedPods))
+	podsByNS := map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod{}
+	identitiesByNS := map[repr.StringID][]eqc.LabelSetID{}
+	for ns, parts := range eqIndex.Range() {
+		rns := eqcToNS(ns)
+		byID := make(map[eqc.LabelSetID][]*repr.Pod, len(parts))
+		ids := make([]eqc.LabelSetID, 0, len(parts))
+		for id, p := range parts {
 			ids = append(ids, id)
+			objs := p.Objects()
+			pods := make([]*repr.Pod, len(objs))
+			for j, o := range objs {
+				pl := o.(*podLabeled)
+				pods[j] = pl.p
+				podIdentity[pl.idx] = id
+			}
+			byID[id] = pods
 		}
 		slices.Sort(ids)
-		identitiesByNS[ns] = ids
+		identitiesByNS[rns] = ids
+		podsByNS[rns] = byID
 	}
 
 	// The core payoff of identity classes: this loop runs once per distinct
 	// label set, not once per pod. For a cluster where replicas dominate
 	// (e.g. 5,000 pods / 200 distinct label sets), that's a ~25x cut in
-	// selector evaluations before a single Tuple is produced.
-	matchedByIdentity := make([]repr.Bitset, identities.Len())
-	for id := 0; id < identities.Len(); id++ {
+	// selector evaluations before a single Tuple is produced. Identity is
+	// content-addressed across namespaces (eqc's README), so the same
+	// LabelSetID can recur across multiple namespaces' partitions above;
+	// dedup here so each distinct identity's bitmap is only computed once.
+	matchedByIdentity := make(map[eqc.LabelSetID]repr.Bitset, len(podIdentity))
+	for i, pod := range sortedPods {
+		id := podIdentity[i]
+		if _, ok := matchedByIdentity[id]; ok {
+			continue
+		}
 		bs := repr.NewBitset(len(registry.All()))
-		for _, sid := range index.Match(identities.Get(repr.LabelSetID(id))) {
+		for _, sid := range index.Match(pod.Labels) {
 			bs.Set(uint32(sid))
 		}
 		matchedByIdentity[id] = bs
@@ -291,7 +316,7 @@ type ruleRef struct {
 // every pod sharing selfMatch (a (namespace, identity) group), mirroring
 // renderPod's logic but replacing selector evaluation with bitmap tests and
 // deferring per-pod own-address substitution to the caller.
-func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
+func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, policySelector []repr.SelectorID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) (*groupTemplates, error) {
 	var selectingIdx []int
 	for _, idx := range nsPolicyIdx {
 		if selfMatch.Test(uint32(policySelector[idx])) {
@@ -349,7 +374,7 @@ func computeGroupTemplates(in *Input, selfMatch repr.Bitset, nsPolicyIdx []int, 
 // can reach (thousands of matching pods) means repeated doubling-and-copy
 // churn, the same issue RenderIndexed's final tuple slice had (see its doc
 // comment).
-func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
+func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]tupleTemplate, error) {
 	if !isolated {
 		return []tupleTemplate{{verdict: tuple.VerdictAllow, peer: peerEntry{wildcard: true}, port: portEntry{wildcard: true}}}, nil
 	}
@@ -390,7 +415,7 @@ func resolveTupleTemplates(isolated bool, rules []ruleRef, registry *repr.Select
 //
 // Known simplification, matching resolvePeers: IPBlock.Except sub-ranges
 // are not carved out of the CIDR.
-func resolvePeersIndexed(peers []repr.Peer, policyNamespace repr.StringID, registry *repr.SelectorRegistry, matchedByIdentity []repr.Bitset, identitiesByNS map[repr.StringID][]repr.LabelSetID, podsByNS map[repr.StringID]map[repr.LabelSetID][]repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
+func resolvePeersIndexed(peers []repr.Peer, policyNamespace repr.StringID, registry *repr.SelectorRegistry, matchedByIdentity map[eqc.LabelSetID]repr.Bitset, identitiesByNS map[repr.StringID][]eqc.LabelSetID, podsByNS map[repr.StringID]map[eqc.LabelSetID][]*repr.Pod, nsIndex *repr.NamespaceSelectorCache) ([]peerEntry, error) {
 	if len(peers) == 0 {
 		return []peerEntry{{wildcard: true}}, nil
 	}

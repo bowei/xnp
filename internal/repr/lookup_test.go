@@ -159,32 +159,6 @@ func TestSelectorRegistry_DedupesIdenticalSelectors(t *testing.T) {
 	}
 }
 
-func TestIdentityAllocator_CollapsesDuplicateLabelSets(t *testing.T) {
-	tbl := NewSymbolTable()
-	alloc := NewIdentityAllocator()
-
-	ls1 := NewLabelSet(map[string]string{"app": "web", "pod-template-hash": "abc"}, tbl)
-	ls2 := NewLabelSet(map[string]string{"pod-template-hash": "abc", "app": "web"}, tbl)
-	ls3 := NewLabelSet(map[string]string{"app": "web", "pod-template-hash": "def"}, tbl)
-
-	id1 := alloc.Intern(ls1)
-	id2 := alloc.Intern(ls2)
-	id3 := alloc.Intern(ls3)
-
-	if id1 != id2 {
-		t.Errorf("Intern(ls1) = %d, Intern(ls2) = %d, want equal (replica of same identity)", id1, id2)
-	}
-	if id1 == id3 {
-		t.Errorf("Intern(ls1) = Intern(ls3) = %d, want distinct identities", id1)
-	}
-	if got := alloc.Len(); got != 2 {
-		t.Errorf("Len() = %d, want 2", got)
-	}
-	if got := alloc.Get(id1); got.Len() != ls1.Len() {
-		t.Errorf("Get(id1).Len() = %d, want %d", got.Len(), ls1.Len())
-	}
-}
-
 func TestBitset_SetTest(t *testing.T) {
 	b := NewBitset(130) // exercise more than one uint64 word
 	if b.Test(5) || b.Test(64) || b.Test(129) {
