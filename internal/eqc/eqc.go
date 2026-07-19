@@ -90,7 +90,7 @@ func newRelevantSet(relevant []KeyID) map[KeyID]bool {
 func (c *EqC) project(s LabelSet) LabelSet {
 	out := make(LabelSet, 0, len(s))
 	for _, kv := range s {
-		if c.relevantSet[kv.K] {
+		if c.relevantSet[kv.K()] {
 			out = append(out, kv)
 		}
 	}

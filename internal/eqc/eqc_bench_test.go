@@ -155,8 +155,8 @@ func genUpdatedObjects(cfg benchConfig, objects []Labeled) []Labeled {
 		labels := make(LabelSet, len(old))
 		copy(labels, old)
 		for j := range labels {
-			if int(labels[j].K) <= cfg.numKeys {
-				labels[j].V++
+			if int(labels[j].K()) <= cfg.numKeys {
+				labels[j] = KV(labels[j].K(), labels[j].V()+1)
 			}
 		}
 		to := o.(testObj)

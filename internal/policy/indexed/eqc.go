@@ -39,7 +39,7 @@ func labelSetToEqC(ls repr.LabelSet) eqc.LabelSet {
 	out := make(eqc.LabelSet, ls.Len())
 	for i := range out {
 		k, v := ls.At(i)
-		out[i] = eqc.KeyValue{K: eqc.KeyID(k), V: eqc.ValueID(v)}
+		out[i] = eqc.KV(eqc.KeyID(k), eqc.ValueID(v))
 	}
 	return out
 }

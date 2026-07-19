@@ -34,7 +34,8 @@ func (t *Table) String(id ID) string {
 // Pair is a packed representation of key/value ID pair.
 type Pair uint64
 
-func newKVPair(key, value ID) Pair { return Pair(key)<<32 | Pair(value) }
+// NewPair packs a key/value ID pair into a Pair.
+func NewPair(key, value ID) Pair { return Pair(key)<<32 | Pair(value) }
 
 func (p Pair) Key() ID   { return ID(p >> 32) }
 func (p Pair) Value() ID { return ID(uint32(p)) }
