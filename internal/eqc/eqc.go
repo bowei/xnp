@@ -6,6 +6,8 @@ type Labeled interface {
 	Labels() LabelSet
 }
 
+// EqC are equivalence classes: tracks dividing resources into equivalece
+// classes of the same label.
 type EqC struct {
 	relevant    []KeyID
 	relevantSet map[KeyID]bool

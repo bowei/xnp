@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -148,7 +148,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *intern.Table) (CompiledSelec
 // Matches is the full (exact + Exists + residual) evaluation of cs against
 // ls. It's the ground-truth semantics; InvertedIndex is an optimization of
 // exactly this check at scale.
-func (cs CompiledSelector) Matches(ls labelset.LabelSet) bool {
+func (cs CompiledSelector) Matches(ls labels.Set) bool {
 	for _, e := range cs.exact {
 		if v, ok := ls.Get(e.Key()); !ok || v != e.Value() {
 			return false
@@ -162,7 +162,7 @@ func (cs CompiledSelector) Matches(ls labelset.LabelSet) bool {
 	return cs.matchesResidual(ls)
 }
 
-func (cs CompiledSelector) matchesResidual(ls labelset.LabelSet) bool {
+func (cs CompiledSelector) matchesResidual(ls labels.Set) bool {
 	for _, r := range cs.residual {
 		v, present := ls.Get(r.key)
 		switch r.op {

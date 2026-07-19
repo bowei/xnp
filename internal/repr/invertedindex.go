@@ -2,7 +2,7 @@ package repr
 
 import (
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/labels"
 )
 
 // InvertedIndex maps label key/value pairs (and bare keys, for Exists
@@ -66,7 +66,7 @@ func (idx *InvertedIndex) Stats() InvertedIndexStats {
 // Match returns the IDs of every selector that matches ls: a counting join
 // over the inverted index (a selector matches iff all of its positive
 // requirements are found) followed by a residual check on the survivors.
-func (idx *InvertedIndex) Match(ls labelset.LabelSet) []SelectorID {
+func (idx *InvertedIndex) Match(ls labels.Set) []SelectorID {
 	counts := map[SelectorID]int{}
 	for i := 0; i < ls.Len(); i++ {
 		key, value := ls.At(i)

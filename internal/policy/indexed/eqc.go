@@ -6,7 +6,7 @@ import (
 
 	"github.com/bowei/xnp/internal/eqc"
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/labels"
 	"github.com/bowei/xnp/internal/repr"
 )
 
@@ -37,7 +37,7 @@ func podID(p *repr.Pod) uint64 {
 // types maintain the same invariant (entries sorted ascending by (key,
 // value)), so this is a straight element-wise conversion via
 // labelset.LabelSet.At.
-func labelSetToEqC(ls labelset.LabelSet) eqc.LabelSet {
+func labelSetToEqC(ls labels.Set) eqc.LabelSet {
 	out := make(eqc.LabelSet, ls.Len())
 	for i := range out {
 		k, v := ls.At(i)

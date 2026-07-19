@@ -7,7 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/labels"
 	"github.com/bowei/xnp/internal/repr"
 )
 
@@ -19,7 +19,7 @@ import (
 // The match cache is lazily populated; mu guards it for concurrent callers.
 type NamespaceSelectorCache struct {
 	tbl        *intern.Table
-	namespaces []labelset.LabelSet
+	namespaces []labels.Set
 	names      []intern.ID
 
 	mu    sync.RWMutex

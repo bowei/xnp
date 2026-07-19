@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	labels1 "github.com/bowei/xnp/internal/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -73,7 +73,7 @@ func TestCompiledSelector_MatchesK8sSemantics(t *testing.T) {
 			t.Fatalf("selector %d: CompileSelector: %v", i, err)
 		}
 		for j, lbls := range labelSetCases() {
-			ls := labelset.Make(lbls, tbl)
+			ls := labels1.Make(lbls, tbl)
 			got := cs.Matches(ls)
 			want := k8sMatches(t, sel, lbls)
 			if got != want {
@@ -97,7 +97,7 @@ func TestInvertedIndex_MatchesCompiledSelector(t *testing.T) {
 	idx := BuildInvertedIndex(compiled)
 
 	for j, lbls := range labelSetCases() {
-		ls := labelset.Make(lbls, tbl)
+		ls := labels1.Make(lbls, tbl)
 
 		var wantIDs []SelectorID
 		for i, cs := range compiled {

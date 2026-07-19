@@ -5,7 +5,7 @@ import (
 	"net/netip"
 
 	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labelset"
+	"github.com/bowei/xnp/internal/labels"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -13,7 +13,7 @@ import (
 type Pod struct {
 	Namespace intern.ID
 	Name      string
-	Labels    labelset.LabelSet
+	Labels    labels.Set
 	IPs       []netip.Addr
 
 	Original *corev1.Pod
@@ -31,7 +31,7 @@ func NewPod(pod *corev1.Pod, tbl *intern.Table) (Pod, error) {
 	return Pod{
 		Namespace: tbl.Intern(pod.Namespace),
 		Name:      pod.Name,
-		Labels:    labelset.Make(pod.Labels, tbl),
+		Labels:    labels.Make(pod.Labels, tbl),
 		IPs:       ips,
 		Original:  pod,
 	}, nil

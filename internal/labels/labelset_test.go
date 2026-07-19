@@ -1,4 +1,4 @@
-package labelset
+package labels
 
 import (
 	"testing"
