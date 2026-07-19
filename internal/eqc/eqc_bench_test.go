@@ -20,6 +20,9 @@ type benchConfig struct {
 	cardinality int  // distinct values per relevant key
 	noiseKeys   int  // irrelevant labels per object, outside the relevant set
 	forceUnique bool // append a relevant key whose value is unique per object
+	skewed      bool // sample relevant-key values from a Zipfian distribution
+	// instead of uniform, producing one dominant ("hot") partition plus a
+	// long tail of rare, near-singleton ones in the same namespace.
 }
 
 var benchConfigs = []benchConfig{
@@ -42,6 +45,14 @@ var benchConfigs = []benchConfig{
 	{name: "VeryHighCardinality_1Key", numObjects: 20000, numNS: 1, numKeys: 1, cardinality: 5000},
 	{name: "VeryHighCardinality_KeysAndValues", numObjects: 20000, numNS: 1, numKeys: 8, cardinality: 5000},
 	{name: "VeryHighCardinality_Keys", numObjects: 20000, numNS: 1, numKeys: 80, cardinality: 10},
+
+	// Distinct pathological shapes, not just axis magnitude: a hot
+	// partition amid a long tail, extreme namespace fragmentation, label
+	// sets dominated by irrelevant noise, and one giant shared partition.
+	{name: "SkewedCardinality_HotPartition", numObjects: 20000, numNS: 1, numKeys: 4, cardinality: 500, skewed: true},
+	{name: "NamespaceFragmentation_OnePerNS", numObjects: 20000, numNS: 20000, numKeys: 2, cardinality: 4},
+	{name: "NoiseDominated_ManyLabels", numObjects: 10000, numNS: 1, numKeys: 2, cardinality: 10, noiseKeys: 300},
+	{name: "GiantSinglePartition", numObjects: 200000, numNS: 1, numKeys: 1, cardinality: 1},
 }
 
 // genObjects deterministically builds cfg.numObjects Labeled objects plus
@@ -58,11 +69,24 @@ func genObjects(cfg benchConfig) (objects []Labeled, relevant []KeyID) {
 	}
 	noiseBase := KeyID(cfg.numKeys + 2) // above uniqueKey, never collides
 
+	// A Zipfian sampler concentrates most draws on value 1 (the "hot"
+	// value) with a long thin tail out to cardinality, instead of the
+	// uniform.Intn spread used elsewhere — modeling the common real-world
+	// case where most objects share one dominant label value (e.g. a
+	// default) and a minority carry rare ones.
+	var relevantValue func() ValueID
+	if cfg.skewed {
+		zipf := rand.NewZipf(rng, 1.5, 1, uint64(cfg.cardinality-1))
+		relevantValue = func() ValueID { return ValueID(1 + zipf.Uint64()) }
+	} else {
+		relevantValue = func() ValueID { return ValueID(1 + rng.Intn(cfg.cardinality)) }
+	}
+
 	objects = make([]Labeled, cfg.numObjects)
 	for i := 0; i < cfg.numObjects; i++ {
 		kvs := make([]any, 0, 2*(cfg.numKeys+cfg.noiseKeys+1))
 		for k := 0; k < cfg.numKeys; k++ {
-			kvs = append(kvs, KeyID(k+1), ValueID(1+rng.Intn(cfg.cardinality)))
+			kvs = append(kvs, KeyID(k+1), relevantValue())
 		}
 		if cfg.forceUnique {
 			kvs = append(kvs, uniqueKey, ValueID(i+1))
