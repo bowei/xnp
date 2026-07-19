@@ -2,13 +2,14 @@ package repr
 
 import (
 	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/labelset"
 	corev1 "k8s.io/api/core/v1"
 )
 
 // Namespace is the memory-efficient mirror of a corev1.Namespace.
 type Namespace struct {
 	Name   intern.ID
-	Labels LabelSet
+	Labels labelset.LabelSet
 
 	Original *corev1.Namespace
 }
@@ -17,7 +18,7 @@ type Namespace struct {
 func NewNamespace(ns *corev1.Namespace, tbl *intern.Table) Namespace {
 	return Namespace{
 		Name:     tbl.Intern(ns.Name),
-		Labels:   NewLabelSet(ns.Labels, tbl),
+		Labels:   labelset.Make(ns.Labels, tbl),
 		Original: ns,
 	}
 }

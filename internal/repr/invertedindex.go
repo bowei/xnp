@@ -1,13 +1,16 @@
 package repr
 
-import "github.com/bowei/xnp/internal/intern"
+import (
+	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/labelset"
+)
 
 // InvertedIndex maps label key/value pairs (and bare keys, for Exists
 // requirements) to the selectors that require them, so matching a label set
 // costs O(label-set size) index probes instead of O(selector count) full
 // selector evaluations.
 type InvertedIndex struct {
-	byExact map[kvPair][]SelectorID
+	byExact map[intern.Pair][]SelectorID
 	byKey   map[intern.ID][]SelectorID // Exists requirements, indexed by key alone
 	// scanAlways holds selectors with zero positive (exact/Exists)
 	// requirements — an empty selector, or one built purely from
@@ -20,7 +23,7 @@ type InvertedIndex struct {
 
 func BuildInvertedIndex(compiled []CompiledSelector) *InvertedIndex {
 	idx := &InvertedIndex{
-		byExact:  map[kvPair][]SelectorID{},
+		byExact:  map[intern.Pair][]SelectorID{},
 		byKey:    map[intern.ID][]SelectorID{},
 		required: make([]int, len(compiled)),
 		compiled: compiled,
@@ -63,15 +66,14 @@ func (idx *InvertedIndex) Stats() InvertedIndexStats {
 // Match returns the IDs of every selector that matches ls: a counting join
 // over the inverted index (a selector matches iff all of its positive
 // requirements are found) followed by a residual check on the survivors.
-func (idx *InvertedIndex) Match(ls LabelSet) []SelectorID {
+func (idx *InvertedIndex) Match(ls labelset.LabelSet) []SelectorID {
 	counts := map[SelectorID]int{}
-	for _, e := range ls.sorted {
-		for _, sid := range idx.byExact[e] {
+	for i := 0; i < ls.Len(); i++ {
+		key, value := ls.At(i)
+		for _, sid := range idx.byExact[intern.NewPair(key, value)] {
 			counts[sid]++
 		}
-	}
-	for k := range ls.kv {
-		for _, sid := range idx.byKey[k] {
+		for _, sid := range idx.byKey[key] {
 			counts[sid]++
 		}
 	}

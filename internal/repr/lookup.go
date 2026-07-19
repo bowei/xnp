@@ -1,38 +1,15 @@
 package repr
 
 import (
-	"encoding/binary"
 	"fmt"
-	"hash/fnv"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/bowei/xnp/internal/intern"
+	"github.com/bowei/xnp/internal/labelset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-func hashLabelKV(sorted []kvPair) uint64 {
-	h := fnv.New64a()
-	var b [8]byte
-	for _, x := range sorted {
-		binary.LittleEndian.PutUint64(b[:], uint64(x))
-		h.Write(b[:])
-	}
-	return h.Sum64()
-}
-
-func labelKVEqual(a, b []kvPair) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 
 // SelectorID is a dense integer identity for a compiled, deduped selector.
 type SelectorID uint32
@@ -63,7 +40,7 @@ type residualReq struct {
 //   - residual: DoesNotExist/NotIn/multi-value-In, evaluated only on
 //     candidates that already cleared the indexed part.
 type CompiledSelector struct {
-	exact      []kvPair // sorted
+	exact      []intern.Pair // sorted
 	existsKeys []intern.ID
 	residual   []residualReq
 }
@@ -81,7 +58,7 @@ func (cs CompiledSelector) positiveCount() int {
 func (cs CompiledSelector) Keys() []intern.ID {
 	seen := make(map[intern.ID]struct{}, len(cs.exact)+len(cs.existsKeys)+len(cs.residual))
 	for _, e := range cs.exact {
-		seen[e.key()] = struct{}{}
+		seen[e.Key()] = struct{}{}
 	}
 	for _, k := range cs.existsKeys {
 		seen[k] = struct{}{}
@@ -102,7 +79,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *intern.Table) (CompiledSelec
 	var cs CompiledSelector
 
 	for k, v := range sel.MatchLabels {
-		cs.exact = append(cs.exact, newKVPair(tbl.Intern(k), tbl.Intern(v)))
+		cs.exact = append(cs.exact, intern.NewPair(tbl.Intern(k), tbl.Intern(v)))
 	}
 
 	for _, expr := range sel.MatchExpressions {
@@ -113,7 +90,7 @@ func CompileSelector(sel metav1.LabelSelector, tbl *intern.Table) (CompiledSelec
 				return CompiledSelector{}, fmt.Errorf("selector: In requires at least one value for key %q", expr.Key)
 			}
 			if len(expr.Values) == 1 {
-				cs.exact = append(cs.exact, newKVPair(key, tbl.Intern(expr.Values[0])))
+				cs.exact = append(cs.exact, intern.NewPair(key, tbl.Intern(expr.Values[0])))
 				continue
 			}
 			values := make(map[intern.ID]struct{}, len(expr.Values))
@@ -147,23 +124,23 @@ func CompileSelector(sel metav1.LabelSelector, tbl *intern.Table) (CompiledSelec
 // Matches is the full (exact + Exists + residual) evaluation of cs against
 // ls. It's the ground-truth semantics; InvertedIndex is an optimization of
 // exactly this check at scale.
-func (cs CompiledSelector) Matches(ls LabelSet) bool {
+func (cs CompiledSelector) Matches(ls labelset.LabelSet) bool {
 	for _, e := range cs.exact {
-		if v, ok := ls.kv[e.key()]; !ok || v != e.value() {
+		if v, ok := ls.Get(e.Key()); !ok || v != e.Value() {
 			return false
 		}
 	}
 	for _, k := range cs.existsKeys {
-		if _, ok := ls.kv[k]; !ok {
+		if _, ok := ls.Get(k); !ok {
 			return false
 		}
 	}
 	return cs.matchesResidual(ls)
 }
 
-func (cs CompiledSelector) matchesResidual(ls LabelSet) bool {
+func (cs CompiledSelector) matchesResidual(ls labelset.LabelSet) bool {
 	for _, r := range cs.residual {
-		v, present := ls.kv[r.key]
+		v, present := ls.Get(r.key)
 		switch r.op {
 		case residualDoesNotExist:
 			if present {

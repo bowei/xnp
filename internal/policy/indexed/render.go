@@ -24,8 +24,8 @@ import (
 
 // RenderIndexed is equivalent to RenderBasic but avoids brute-force
 // selector×pod evaluation, per the "Label optimizations" in
-// doc/optimizations.md, using repr's matching-layer types (repr.LabelSet,
-// repr.CompiledSelector, repr.InvertedIndex, repr.Bitset, ...):
+// doc/optimizations.md, using labelset.LabelSet and repr's matching-layer
+// types (repr.CompiledSelector, repr.InvertedIndex, repr.Bitset, ...):
 //
 //   - Pods are canonicalized into small-integer label-set identities (#1);
 //     selector evaluation runs once per (namespace, identity) group and is
