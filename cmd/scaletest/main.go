@@ -106,6 +106,7 @@ func renderCmd() *cobra.Command {
 				tupleStore = store.NewStore(0)
 			}
 
+			allocBefore = scaletest.SnapshotAlloc()
 			start = time.Now()
 			switch renderer {
 			case "parallel":
@@ -118,6 +119,7 @@ func renderCmd() *cobra.Command {
 				err = basic.RenderBasic(in, tupleStore)
 			}
 			renderDur := time.Since(start)
+			renderAlloc := scaletest.SnapshotAlloc().Since(allocBefore)
 			mem := stopMem()
 			if err != nil {
 				return fmt.Errorf("render: %w", err)
@@ -127,7 +129,7 @@ func renderCmd() *cobra.Command {
 				return err
 			}
 
-			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, mem)
+			report := scaletest.Summarize(tc, tupleStore, genDur, convDur, renderDur, genAlloc, convAlloc, renderAlloc, mem)
 			if _, err := fmt.Fprint(cmd.OutOrStdout(), report.String()); err != nil {
 				return err
 			}
