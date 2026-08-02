@@ -1,11 +1,9 @@
 package repr
 
 import (
-	"fmt"
 	"net/netip"
 
-	"github.com/bowei/xnp/internal/intern"
-	"github.com/bowei/xnp/internal/labels"
+	"github.com/bowei/kvec/pkg/kv"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -13,7 +11,7 @@ import (
 type Pod struct {
 	Namespace string
 	Name      string
-	Labels    TODO
+	Labels    kv.KV
 	IPs       []netip.Addr
 
 	Original *corev1.Pod
