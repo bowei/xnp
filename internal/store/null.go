@@ -8,14 +8,18 @@ import (
 
 func NewNull() Store { return &null{} }
 
-// null is a Store that throws away the tuples. It is used for benchmarking.
+// null is a Store that throws away the tuples. It is used for benchmarking
+// render compute cost apart from result-storage cost: Reserve returns a
+// tuple.NewDiscardColumns instead of a real n-sized Columns, so RenderIndexed
+// and RenderIndexedParallel (which Reserve once for their entire output)
+// don't pay for one big preallocated result buffer just to discard it.
 type null struct {
 	size int
 }
 
 func (s *null) Reserve(n int) tuple.Columns {
 	s.size += n
-	return tuple.NewColumns(n)
+	return tuple.NewDiscardColumns(n)
 }
 
 func (s *null) AddAll(ts []tuple.Tuple) {

@@ -28,6 +28,32 @@ type Columns struct {
 	Protocol  []Protocol
 	Direction []Direction
 	Verdict   []Verdict
+
+	// discard marks a Columns returned by NewDiscardColumns: it has no
+	// backing arrays yet, only a virtualLen. See NewDiscardColumns.
+	discard    bool
+	virtualLen int
+}
+
+// NewDiscardColumns returns a placeholder Columns of virtual length n with
+// no backing arrays allocated. It exists for a Store that computes tuples
+// but never retains them (store.NewNull, used for benchmarking): Reserve
+// still has to hand back something of the right size to satisfy callers
+// that write straight into a preallocated result instead of appending
+// (RenderIndexed, RenderIndexedParallel — see their doc comments), but
+// paying for a real n-sized allocation up front, only to discard it,
+// defeats the point of isolating render-compute cost from result-storage
+// cost.
+//
+// Instead, Slice on a discard Columns lazily allocates a real (small)
+// Columns sized to just the requested sub-range, the same per-chunk-cost
+// shape RenderBasic/RenderParallel already pay via makeTuples — so total
+// allocation scales with however finely a caller slices, never with n
+// itself. Reading from a discard Columns before it's been sliced down to a
+// real one is a bug in the caller, so Set/At/ToSlice/Grow panic on it
+// rather than silently indexing into nothing.
+func NewDiscardColumns(n int) Columns {
+	return Columns{discard: true, virtualLen: n}
 }
 
 // NewColumns allocates a Columns with n rows, all zero-valued.
@@ -69,6 +95,9 @@ func NewColumnsCap(n int) Columns {
 
 // Len returns the number of rows.
 func (c Columns) Len() int {
+	if c.discard {
+		return c.virtualLen
+	}
 	return len(c.Pod)
 }
 
@@ -78,6 +107,9 @@ func (c Columns) Len() int {
 // Grow calls get append's amortized-O(1) geometric capacity growth rather
 // than reallocating to an exact size every time.
 func (c Columns) Grow(n int) Columns {
+	if c.discard {
+		panic("tuple: Grow called on a discard Columns")
+	}
 	return Columns{
 		Pod:  append(c.Pod, make([]types.NamespacedName, n)...),
 		Src:  append(c.Src, make([]string, n)...),
@@ -96,7 +128,19 @@ func (c Columns) Grow(n int) Columns {
 
 // Slice returns the sub-view [start:end), sharing the same backing arrays
 // as c (writes through it are visible in c and vice versa).
+//
+// On a discard Columns (see NewDiscardColumns), Slice instead lazily
+// allocates a fresh, real Columns of length end-start and returns that —
+// so nested/concurrent Slice calls (as RenderIndexedParallel makes, one per
+// pod, from separate goroutines) each get their own independent backing
+// arrays rather than racing on shared memory.
 func (c Columns) Slice(start, end int) Columns {
+	if c.discard {
+		if start < 0 || end > c.virtualLen || start > end {
+			panic("tuple: Columns.Slice out of range")
+		}
+		return NewColumns(end - start)
+	}
 	return Columns{
 		Pod:  c.Pod[start:end],
 		Src:  c.Src[start:end],
@@ -115,6 +159,9 @@ func (c Columns) Slice(start, end int) Columns {
 
 // Set writes t into row i.
 func (c Columns) Set(i int, t Tuple) {
+	if c.discard {
+		panic("tuple: Set called on a discard Columns; Slice it down to a real one first")
+	}
 	c.Pod[i] = t.Pod
 	c.Src[i] = t.Src
 	c.Dest[i] = t.Dest
@@ -135,6 +182,9 @@ func (c Columns) Set(i int, t Tuple) {
 
 // At materializes row i as a Tuple.
 func (c Columns) At(i int) Tuple {
+	if c.discard {
+		panic("tuple: At called on a discard Columns; Slice it down to a real one first")
+	}
 	t := Tuple{
 		Pod:       c.Pod[i],
 		Src:       c.Src[i],

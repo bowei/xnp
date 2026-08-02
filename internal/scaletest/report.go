@@ -31,6 +31,7 @@ type Report struct {
 
 	GenerateAlloc AllocSnapshot
 	ConvertAlloc  AllocSnapshot
+	RenderAlloc   AllocSnapshot
 
 	Mem MemStats
 }
@@ -39,7 +40,7 @@ type Report struct {
 // Store policy.Render produced from it. It is a pure function of its
 // arguments (durations and memory stats are passed in rather than measured
 // internally) so it's straightforward to unit test without timing flakiness.
-func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur time.Duration, genAlloc, convAlloc AllocSnapshot, mem MemStats) *Report {
+func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur time.Duration, genAlloc, convAlloc, renderAlloc AllocSnapshot, mem MemStats) *Report {
 	nodeOf := make(map[types.NamespacedName]string, len(tc.Pods))
 	nodes := make(map[string]bool)
 	for _, pod := range tc.Pods {
@@ -66,6 +67,7 @@ func Summarize(tc *TestCase, tupleStore store.Store, genDur, convDur, renderDur 
 		RenderDuration:   renderDur,
 		GenerateAlloc:    genAlloc,
 		ConvertAlloc:     convAlloc,
+		RenderAlloc:      renderAlloc,
 		Mem:              mem,
 	}
 	r.TuplesPerPod = statsOf(tuplesPerPod, len(tc.Pods))
@@ -108,7 +110,7 @@ func (r *Report) String() string {
 	fmt.Fprintf(&b, "tuples/node: min=%d max=%d avg=%.1f\n", r.TuplesPerNode.Min, r.TuplesPerNode.Max, r.TuplesPerNode.Avg)
 	fmt.Fprintf(&b, "generate:    %s  alloc=%s (%d allocs)\n", r.GenerateDuration, formatBytes(r.GenerateAlloc.Bytes), r.GenerateAlloc.Mallocs)
 	fmt.Fprintf(&b, "convert:     %s  alloc=%s (%d allocs)\n", r.ConvertDuration, formatBytes(r.ConvertAlloc.Bytes), r.ConvertAlloc.Mallocs)
-	fmt.Fprintf(&b, "render:      %s\n", r.RenderDuration)
+	fmt.Fprintf(&b, "render:      %s  alloc=%s (%d allocs)\n", r.RenderDuration, formatBytes(r.RenderAlloc.Bytes), r.RenderAlloc.Mallocs)
 	fmt.Fprintf(&b, "heap alloc:  start=%s min=%s max=%s end=%s\n",
 		formatBytes(r.Mem.Start), formatBytes(r.Mem.Min), formatBytes(r.Mem.Max), formatBytes(r.Mem.End))
 	return b.String()

@@ -85,6 +85,31 @@ func TestRenderIndexedParallel_ReplicatedLabelSets(t *testing.T) {
 	}
 }
 
+// TestRenderIndexedParallel_NullStore checks RenderIndexedParallel against
+// store.NewNull() across worker counts: materializeTuplesParallel has
+// multiple goroutines Slice their own chunk of one shared Reserve call
+// concurrently, which is exactly the pattern tuple.NewDiscardColumns has to
+// stay race-safe under (see TestDiscardColumns_ConcurrentSliceIsRaceSafe in
+// package tuple) — run this with -race to catch a regression there.
+func TestRenderIndexedParallel_NullStore(t *testing.T) {
+	policies, pods, namespaces := testutil.BuildRandomFixture(1)
+	in := testutil.MustInput(t, policies, pods, namespaces)
+
+	want := renderBasic(t, in)
+
+	for _, workers := range []int{0, 1, 2, 3, 8, 64} {
+		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
+			s := store.NewNull()
+			if err := RenderIndexedParallel(in, s, workers); err != nil {
+				t.Fatalf("RenderIndexedParallel: %v", err)
+			}
+			if got := s.Len(); got != want.Len() {
+				t.Fatalf("null store Len() = %d, want %d", got, want.Len())
+			}
+		})
+	}
+}
+
 func TestRenderIndexedParallel_Empty(t *testing.T) {
 	in := testutil.MustInput(t, nil, nil, nil)
 	store := renderIndexedParallel(t, in, 4)

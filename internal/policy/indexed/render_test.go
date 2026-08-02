@@ -51,6 +51,27 @@ func TestRenderIndexed_MatchesBasic(t *testing.T) {
 	testutil.AssertTuples(t, got.List(), want.List())
 }
 
+// TestRenderIndexed_NullStore checks RenderIndexed against store.NewNull(),
+// which exercises the discard-Columns path in Store.Reserve (see
+// tuple.NewDiscardColumns): RenderIndexed reserves its entire output in one
+// call, so a regression there (e.g. reverting to a real n-sized allocation,
+// or a Slice/Set bounds bug) would show up here even though null.List()
+// can't be compared tuple-for-tuple against RenderBasic's output.
+func TestRenderIndexed_NullStore(t *testing.T) {
+	policies, pods, namespaces := testutil.BuildRandomFixture(1)
+	in := testutil.MustInput(t, policies, pods, namespaces)
+
+	want := renderBasic(t, in)
+
+	s := store.NewNull()
+	if err := RenderIndexed(in, s); err != nil {
+		t.Fatalf("RenderIndexed: %v", err)
+	}
+	if got := s.Len(); got != want.Len() {
+		t.Fatalf("null store Len() = %d, want %d", got, want.Len())
+	}
+}
+
 func TestRenderIndexed_Empty(t *testing.T) {
 	in := testutil.MustInput(t, nil, nil, nil)
 	store := renderIndexed(t, in)
