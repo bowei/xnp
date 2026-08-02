@@ -3,13 +3,13 @@ module github.com/bowei/xnp
 go 1.26.5
 
 require (
+	github.com/bowei/kvec v0.0.0-20260802224558-63fdb1f68659
 	github.com/spf13/cobra v1.10.2
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
 )
 
 require (
-	github.com/bowei/kvec v0.0.0-20260802224558-63fdb1f68659 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

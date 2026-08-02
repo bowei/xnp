@@ -1,21 +1,20 @@
 package repr
 
 import (
-	v1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
+	"fmt"
 
-func NewNetworkPolicy(np *networkingv1.NetworkPolicy) *NetworkPolicy {
-	// TODO
-}
+	"github.com/bowei/kvec/pkg/pred"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+)
 
 // NetworkPolicy is the memory-efficient mirror of a
 // networkingv1.NetworkPolicy.
 type NetworkPolicy struct {
 	Namespace   string
 	Name        string
-	PodSelector metav1.LabelSelector
+	PodSelector *pred.Predicate
 	PolicyTypes []networkingv1.PolicyType
 	Ingress     []Rule
 	Egress      []Rule
@@ -24,12 +23,14 @@ type NetworkPolicy struct {
 }
 
 // Peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
-// Selectors are kept as raw metav1.LabelSelector — policies are low
-// cardinality, so compiling them is a lookup-speed concern (see lookup.go's
-// CompiledSelector), not a memory one.
+//
+// A nil PodSelector/NamespaceSelector means the field was not specified,
+// which the NetworkPolicy API distinguishes from an empty selector: an
+// omitted namespaceSelector restricts the peer to the policy's own namespace,
+// while an empty one matches every namespace.
 type Peer struct {
-	PodSelector       *metav1.LabelSelector
-	NamespaceSelector *metav1.LabelSelector
+	PodSelector       *pred.Predicate
+	NamespaceSelector *pred.Predicate
 	IPBlock           *IPBlock
 }
 
@@ -41,10 +42,70 @@ type Rule struct {
 }
 
 // Port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
+// A nil Port means every port; a non-nil EndPort makes [Port, EndPort] a
+// range. Protocol is always one of TCP/UDP/SCTP, defaulted to TCP as the API
+// defaults it.
 type Port struct {
-	Protocol v1.Protocol
+	Protocol corev1.Protocol
 	Port     *int32
 	EndPort  *int32
+}
+
+// NewNetworkPolicy converts np into repr form, compiling its selectors for
+// matching.
+//
+// Conversion fails rather than dropping or approximating anything it cannot
+// represent: an unparseable ipBlock CIDR, an unsupported selector operator,
+// or a named (string) port. Since this runs once per policy up front, a
+// policy that would render wrongly is rejected even if no pod ever selects
+// it, rather than at the point some renderer happens to evaluate the rule.
+func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
+	podSelector, err := NewPredicate(&np.Spec.PodSelector)
+	if err != nil {
+		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
+	}
+
+	ingress := make([]Rule, len(np.Spec.Ingress))
+	for i, r := range np.Spec.Ingress {
+		rule, err := newRule(r.From, r.Ports)
+		if err != nil {
+			return nil, fmt.Errorf("networkpolicy %s/%s: ingress rule %d: %w", np.Namespace, np.Name, i, err)
+		}
+		ingress[i] = rule
+	}
+
+	egress := make([]Rule, len(np.Spec.Egress))
+	for i, r := range np.Spec.Egress {
+		rule, err := newRule(r.To, r.Ports)
+		if err != nil {
+			return nil, fmt.Errorf("networkpolicy %s/%s: egress rule %d: %w", np.Namespace, np.Name, i, err)
+		}
+		egress[i] = rule
+	}
+
+	return &NetworkPolicy{
+		Namespace:   np.Namespace,
+		Name:        np.Name,
+		PodSelector: podSelector,
+		// Shares the original's backing array: the API objects repr mirrors
+		// are read-only to us, and Original keeps them alive regardless.
+		PolicyTypes: np.Spec.PolicyTypes,
+		Ingress:     ingress,
+		Egress:      egress,
+		Original:    np,
+	}, nil
+}
+
+func newRule(peers []networkingv1.NetworkPolicyPeer, ports []networkingv1.NetworkPolicyPort) (Rule, error) {
+	convertedPeers, err := newPeers(peers)
+	if err != nil {
+		return Rule{}, err
+	}
+	convertedPorts, err := newPorts(ports)
+	if err != nil {
+		return Rule{}, err
+	}
+	return Rule{Peers: convertedPeers, Ports: convertedPorts}, nil
 }
 
 func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
@@ -53,13 +114,21 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 	}
 	out := make([]Peer, len(peers))
 	for i, p := range peers {
+		podSelector, err := NewPredicate(p.PodSelector)
+		if err != nil {
+			return nil, fmt.Errorf("peer %d: podSelector: %w", i, err)
+		}
+		nsSelector, err := NewPredicate(p.NamespaceSelector)
+		if err != nil {
+			return nil, fmt.Errorf("peer %d: namespaceSelector: %w", i, err)
+		}
 		block, err := newIPBlock(p.IPBlock)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("peer %d: %w", i, err)
 		}
 		out[i] = Peer{
-			PodSelector:       p.PodSelector,
-			NamespaceSelector: p.NamespaceSelector,
+			PodSelector:       podSelector,
+			NamespaceSelector: nsSelector,
 			IPBlock:           block,
 		}
 	}
@@ -74,7 +143,7 @@ func newPorts(ports []networkingv1.NetworkPolicyPort) ([]Port, error) {
 	for i, p := range ports {
 		port, err := newPort(p)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("port %d: %w", i, err)
 		}
 		out[i] = port
 	}
@@ -85,5 +154,34 @@ func newPorts(ports []networkingv1.NetworkPolicyPort) ([]Port, error) {
 // resolvePorts: resolving them needs per-peer-pod container port lookups,
 // so conversion errors rather than producing a silently wrong Port.
 func newPort(p networkingv1.NetworkPolicyPort) (Port, error) {
-	// TODO
+	out := Port{Protocol: corev1.ProtocolTCP}
+	if p.Protocol != nil {
+		switch *p.Protocol {
+		case corev1.ProtocolTCP, corev1.ProtocolUDP, corev1.ProtocolSCTP:
+			out.Protocol = *p.Protocol
+		default:
+			return Port{}, fmt.Errorf("unsupported protocol %q", *p.Protocol)
+		}
+	}
+
+	if p.Port != nil {
+		if p.Port.Type != intstr.Int {
+			return Port{}, fmt.Errorf("named port %q is unsupported", p.Port.StrVal)
+		}
+		port := p.Port.IntVal
+		out.Port = &port
+	}
+
+	if p.EndPort != nil {
+		if out.Port == nil {
+			return Port{}, fmt.Errorf("endPort %d set without a port", *p.EndPort)
+		}
+		if *p.EndPort < *out.Port {
+			return Port{}, fmt.Errorf("endPort %d is less than port %d", *p.EndPort, *out.Port)
+		}
+		endPort := *p.EndPort
+		out.EndPort = &endPort
+	}
+
+	return out, nil
 }

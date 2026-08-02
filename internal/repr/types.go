@@ -1,9 +1,16 @@
 // Package repr holds memory-efficient mirrors of the Kubernetes types
-// internal/policy renders (Pod, NetworkPolicy, Namespace): IPs as
-// netip.Addr/netip.Prefix instead of strings, and labels as an interned,
-// pre-sorted form instead of map[string]string. This is storage-layer work
-// only — see lookup.go for the matching-layer structures (compiled
-// selectors, inverted index, bitsets) built on top of it.
+// internal/policy renders (Pod, NetworkPolicy, Namespace), carrying only the
+// fields policy resolution needs, in the form it needs them:
+//
+//   - IPs as netip.Addr/netip.Prefix instead of strings.
+//   - Labels as a kvec kv.KV instead of map[string]string.
+//   - Selectors precompiled into kvec pred.Predicates instead of
+//     metav1.LabelSelectors, so matching is done against the compiled form
+//     rather than re-derived per pod.
+//
+// Conversion happens once, up front, and every mirror keeps an Original
+// pointer back to the object it was built from. The compiled forms are
+// immutable and safe to match against concurrently.
 package repr
 
 import (
