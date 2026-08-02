@@ -2,8 +2,11 @@
 
 xnp is an implementation of Kubernetes Network Policy that is targeted for high scale.
 
-The key architectural design in `xnp` is to prebake as much of resolution of policies
-in a central horizontally-scalable control plane that then sends a highly compressed list of simple rules to be consumed by a light-weight agent that operates on simple network filtering rules on each individual Kubernetes Node.
+The key architectural design in `xnp` is to prebake as much of resolution of
+policies in a central horizontally-scalable control plane that then sends a
+highly compressed list of simple rules to be consumed by a light-weight agent
+that operates on simple network filtering rules on each individual Kubernetes
+Node.
 
 ## Network policy computation
 
