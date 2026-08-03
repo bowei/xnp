@@ -55,7 +55,9 @@ func (nps *NetworkPolicies) RelevantKeys() set.Set[string] { return nps.relevant
 // skipped, since silently dropping a policy would render as more allowed
 // traffic than the cluster asked for. The store is left untouched when that
 // happens, so a failed Init cannot leave it holding half a cluster.
-func (nps *NetworkPolicies) Init(policies func(yield func(*v1.NetworkPolicy) bool)) error {
+func (nps *NetworkPolicies) Init(
+	policies func(yield func(*v1.NetworkPolicy) bool),
+) error {
 	byNs := map[string]map[string]*repr.NetworkPolicy{}
 	relevantKeys := set.New[string]()
 

@@ -25,12 +25,9 @@ func NewNamespaces() *Namespaces {
 // Init is the startup path (doc/workflow.tex §Startup). It replaces whatever
 // the store currently holds, so the caller hands over a synced Namespace cache
 // and incremental updates take over from there.
-//
-// Nothing about a Namespace can fail to convert — repr.NewNamespace only
-// compiles labels — but the error is returned anyway so the three stores'
-// startup paths stay one shape for the caller sequencing them, and so a future
-// per-namespace check does not change the signature.
-func (nss *Namespaces) Init(nsSeq func(yield func(*corev1.Namespace) bool)) error {
+func (nss *Namespaces) Init(
+	nsSeq func(yield func(*corev1.Namespace) bool),
+) error {
 	byName := map[string]*repr.Namespace{}
 	for ns := range nsSeq {
 		converted := repr.NewNamespace(ns)
