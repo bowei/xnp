@@ -108,8 +108,9 @@ control loop yet.
   Classes are bucketed by `KV.Hash()` and settled with `Equal`, since 64 bits cannot establish
   identity. Empty classes and empty namespaces are pruned as they drain. Not safe for concurrent use.
 
-- **`internal/store`** — the controller's live view of the cluster, one type per kind. Only
-  `np.go` (`NetworkPolicies`) is implemented; `ns.go` and `pods.go` are stubs.
+- **`internal/store`** — the controller's live view of the cluster, one type per kind:
+  `NetworkPolicies` (`np.go`), `Pods` (`pods.go`), `Namespaces` (`ns.go`). All three have their
+  startup `Init`; none has an incremental path yet.
 
   `NetworkPolicies.RelevantKeys()` is the load-bearing piece: the set of label keys named by any
   selector of any stored policy. A key no policy mentions cannot change whether a selector matches,
@@ -120,12 +121,26 @@ control loop yet.
   projected onto the relevant keys, so a dropped key would read as absent and satisfy an exclusion
   the real object fails.
 
-  `Init` is the startup path (`doc/workflow.tex` §Startup). It builds into fresh maps and commits
-  to the receiver only on success, so a failed `Init` leaves the store exactly as it was rather than
-  holding half a cluster; an unconvertible policy fails the whole call rather than being skipped,
-  because silently dropping a policy renders as *more* allowed traffic than the cluster asked for.
-  The incremental `Upsert`/`Delete` paths do not exist yet — note that removing a policy cannot just
-  delete its keys from `relevantKeys`, since another policy may still name them.
+  `Init` is the startup path (`doc/workflow.tex` §Startup). Each store builds into fresh maps and
+  commits to the receiver only on success, so a failed `Init` leaves the store exactly as it was
+  rather than holding half a cluster; an unconvertible object fails the whole call rather than being
+  skipped, because silently dropping a policy — or a pod, which is then a pod no policy selects —
+  renders as *more* allowed traffic than the cluster asked for.
+
+  The three `Init`s are ordered: `Pods.Init` takes `NetworkPolicies.RelevantKeys()`, because a pod is
+  grouped by `repr.RelevantLabels(pod.Labels, keys)` and that projection cannot be built before the
+  key set is known. `Pods` owns an `eqc.Classes` and links each `repr.Pod` to its class as it
+  converts; resolution is meant to walk `Pods.Classes()` rather than the pods. `Namespaces` has no
+  classes — `repr.Namespace` compiles its full label set, and `doc/workflow.tex` leaves that grouping
+  undone — and its `Init` cannot actually fail, returning `error` only to keep the three startup paths
+  one shape.
+
+  The incremental `Upsert`/`Delete` paths do not exist yet, and neither does the step that follows
+  the three `Init`s (§Startup 4: resolve policies against pods per namespace into a resolved-policy
+  cache), since there is no renderer. Two things to know before writing the incremental paths:
+  removing a policy cannot just delete its keys from `relevantKeys`, since another policy may still
+  name them; and a change to `relevantKeys` invalidates *every* pod's projection, so it re-groups the
+  whole `Pods` store rather than one pod.
 
 - **`kvec/pkg/kv`, `kvec/pkg/pred`** (sibling module) — what the matching hot path is built on.
   `kv.KV` is an immutable key/value set carrying two fixed 128-bit hash signatures, so `Contains`
