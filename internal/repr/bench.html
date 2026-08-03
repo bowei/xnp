@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>repr conversion — scaling model</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --critical: #d03b3b;
+    --warning: #fab219;
+    --shade: rgba(11, 11, 11, 0.035);
+    --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --plane: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --shade: rgba(255, 255, 255, 0.04);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --shade: rgba(255, 255, 255, 0.04);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 8px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-secondary); font-size: 14px; margin: 0; max-width: 72ch; }
+  .prov { color: var(--text-muted); font-size: 12.5px; font-family: var(--mono); margin: 10px 0 0; }
+
+  button.ghost {
+    font: inherit; font-size: 13px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  }
+  button.ghost:hover { color: var(--text-primary); }
+
+  section { margin-top: 36px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 0 0 14px; font-weight: 600; }
+  h3 { font-size: 15px; margin: 0 0 2px; font-weight: 600; }
+  .note { color: var(--text-secondary); font-size: 13px; margin: 8px 0 0; max-width: 84ch; }
+  .note.tight { margin-top: 4px; }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+
+  /* ── controls ─────────────────────────────────────────── */
+  .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .ctl { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+  .ctl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .ctl-head .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .ctl-head h3 { font-size: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  input[type="number"] {
+    font: inherit; font-family: var(--mono); font-size: 14px; width: 100%;
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--plane); color: var(--text-primary); font-variant-numeric: tabular-nums;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--series-1); margin: 12px 0 4px; }
+  select {
+    font: inherit; font-size: 13.5px; padding: 6px 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--plane); color: var(--text-primary);
+  }
+  .shape-desc { color: var(--text-muted); font-size: 12px; margin-top: 8px; min-height: 2.4em; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  .presets span { font-size: 12.5px; color: var(--text-muted); margin-right: 2px; }
+  .model-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; font-size: 13.5px; color: var(--text-secondary); }
+
+  /* ── stat tiles ───────────────────────────────────────── */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+  .tile .label { font-size: 12.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .tile .value { font-size: 34px; line-height: 1.15; margin-top: 8px; letter-spacing: -0.02em; }
+  .tile .value .unit { font-size: 18px; color: var(--text-secondary); margin-left: 4px; letter-spacing: 0; }
+  .tile .foot { font-size: 12.5px; color: var(--text-secondary); margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+  .flag { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 12px 14px; margin-top: 16px; font-size: 13.5px; border: 1px solid var(--border); background: var(--surface-1); }
+  .flag .icon { flex: none; font-weight: 700; width: 18px; text-align: center; }
+  .flag.critical { border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); }
+  .flag.critical .icon { color: var(--critical); }
+  .flag.warning { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+  .flag.warning .icon { color: var(--warning); }
+  .flag b { font-weight: 600; }
+  .flag.hidden { display: none; }
+
+  /* ── charts ───────────────────────────────────────────── */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 18px 18px 12px; position: relative; }
+  .chart-head { margin-bottom: 4px; }
+  .chart-head .cap { font-size: 12.5px; color: var(--text-muted); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 2px; font-size: 12.5px; color: var(--text-secondary); }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .legend .dash { width: 16px; height: 0; border-top: 2px dashed var(--text-muted); flex: none; }
+  .chart-host { width: 100%; position: relative; }
+  .chart-host svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .tabs { display: flex; gap: 4px; background: var(--plane); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .tabs button {
+    font: inherit; font-size: 13px; padding: 5px 14px; border: 0; border-radius: 7px;
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+  }
+  .tabs button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); font-weight: 600; }
+  .section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .section-head h2 { margin: 0; }
+
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 11px; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0,0,0,0.13);
+    min-width: 168px; z-index: 5;
+  }
+  .tip.on { opacity: 1; }
+  .tip .th { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); margin-bottom: 6px; }
+  .tip .tr { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+  .tip .tr .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .tip .tr .nm { color: var(--text-secondary); }
+  .tip .tr .vl { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tip .tr .est { color: var(--text-muted); font-size: 11px; }
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tbl-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  th:first-child, td:first-child { text-align: left; }
+  td.name { color: var(--text-primary); }
+  td.dim, .dim { color: var(--text-muted); }
+  tr.group td { border-top: 1px solid var(--baseline); }
+  td .mk { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: baseline; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; font-size: 13.5px; color: var(--text-secondary); }
+  summary:hover { color: var(--text-primary); }
+  code { font-family: var(--mono); font-size: 0.92em; background: var(--plane); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--border); }
+
+  @media (max-width: 900px) {
+    .controls, .tiles, .chart-grid { grid-template-columns: 1fr; }
+    header { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>repr conversion at scale</h1>
+    <p class="sub">
+      How long a full resync's worth of Kubernetes objects takes to convert into
+      <code>internal/repr</code> form, and what the converted set costs to keep resident —
+      measured to 1M objects, modelled to 10M.
+    </p>
+    <p class="prov" id="prov"></p>
+  </div>
+  <button class="ghost" id="theme">Theme</button>
+</header>
+
+<!-- ── 1. Predictor ─────────────────────────────────────────────────────── -->
+<section>
+  <div class="section-head">
+    <h2>Predict a workload</h2>
+    <div class="model-pick">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="proportional">Proportional — y = a·n</option>
+        <option value="affine" selected>Affine — y = a·n + c</option>
+        <option value="power">Power law — y = a·n<sup>b</sup></option>
+      </select>
+    </div>
+  </div>
+
+  <div class="controls" id="controls"></div>
+
+  <div class="presets" id="presets"><span>Presets</span></div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="label">Conversion time</div>
+      <div class="value" id="v-time">—</div>
+      <div class="foot" id="f-time"></div>
+    </div>
+    <div class="tile">
+      <div class="label">Resident after conversion</div>
+      <div class="value" id="v-retain">—</div>
+      <div class="foot" id="f-retain"></div>
+    </div>
+    <div class="tile">
+      <div class="label">Total allocated (GC churn)</div>
+      <div class="value" id="v-alloc">—</div>
+      <div class="foot" id="f-alloc"></div>
+    </div>
+  </div>
+
+  <div class="flag critical hidden" id="flag-ram">
+    <span class="icon">!</span>
+    <span id="flag-ram-text"></span>
+  </div>
+  <div class="flag warning hidden" id="flag-extrap">
+    <span class="icon">!</span>
+    <span id="flag-extrap-text"></span>
+  </div>
+
+  <div class="tbl-scroll" style="margin-top:16px">
+    <table id="mix-table">
+      <thead>
+        <tr>
+          <th>Resource</th><th>Shape</th><th>Count</th>
+          <th>Time</th><th>ns/obj</th><th>Resident</th><th>B/obj</th><th>Allocated</th><th>Basis</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── 2. Scaling curves ────────────────────────────────────────────────── -->
+<section>
+  <div class="section-head">
+    <h2>Scaling to 10M — measured points, fitted curve</h2>
+    <div class="tabs" id="kind-tabs"></div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3 id="t-time">Conversion time</h3>
+        <div class="cap">wall time for the whole batch · single-threaded · log–log</div>
+      </div>
+      <div class="legend" id="lg-time"></div>
+      <div class="chart-host" id="c-time"><div class="tip" id="tip-time"></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3 id="t-mem">Resident memory</h3>
+        <div class="cap">live heap held by the converted set · log–log</div>
+      </div>
+      <div class="legend" id="lg-mem"></div>
+      <div class="chart-host" id="c-mem"><div class="tip" id="tip-mem"></div></div>
+    </div>
+  </div>
+  <p class="note" id="extrap-note"></p>
+</section>
+
+<!-- ── 3. Unit cost ─────────────────────────────────────────────────────── -->
+<section>
+  <h2>Unit cost — what one object costs, by kind and shape</h2>
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Time per object</h3>
+        <div class="cap">fitted per-object cost · log scale</div>
+      </div>
+      <div class="legend" id="lg-dot"></div>
+      <div class="chart-host" id="c-dot-time"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Resident bytes per object</h3>
+        <div class="cap">measured live heap per object · log scale</div>
+      </div>
+      <div class="legend" id="lg-dot2"></div>
+      <div class="chart-host" id="c-dot-mem"></div>
+    </div>
+  </div>
+  <p class="note">
+    Both axes are logarithmic because the range is four orders of magnitude: a minimal Namespace
+    converts in ~170&nbsp;ns and keeps 72&nbsp;B, while a large NetworkPolicy takes ~150&nbsp;µs and
+    keeps ~93&nbsp;KiB. Policies, not pods, are what the scale question is about.
+  </p>
+</section>
+
+<!-- ── 4. Mix sweep ─────────────────────────────────────────────────────── -->
+<section>
+  <h2>The configured mix, swept to 10M total resources</h2>
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Total conversion time</h3>
+        <div class="cap">the mix above held at fixed ratio and scaled</div>
+      </div>
+      <div class="chart-host" id="c-sweep-time"><div class="tip" id="tip-sweep-time"></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Total resident memory</h3>
+        <div class="cap">the mix above held at fixed ratio and scaled</div>
+      </div>
+      <div class="chart-host" id="c-sweep-mem"><div class="tip" id="tip-sweep-mem"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 5. Fits & data ───────────────────────────────────────────────────── -->
+<section>
+  <h2>Fitted coefficients</h2>
+  <div class="card tbl-scroll">
+    <table id="fit-table">
+      <thead>
+        <tr>
+          <th>Series</th><th>Metric</th><th>Model</th><th>a (per object)</th><th>2nd term</th>
+          <th>R² (log)</th><th>Worst error</th><th>@ 1M</th><th>@ 10M</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note">
+    All three models are fitted in log space, so a 1k point weighs as much as a 1M one —
+    absolute-error least squares would let the largest case alone decide the coefficients.
+    <b>R² (log)</b> and <b>worst error</b> are computed the same way for every model, so they compare.
+    A fit over only two measured points has no degrees of freedom left; its R² is 1 by construction
+    and is shown as <span class="dim">n/a</span>.
+  </p>
+
+  <details>
+    <summary>Measured data (table view)</summary>
+    <div class="card tbl-scroll" style="margin-top:12px">
+      <table id="data-table">
+        <thead>
+          <tr>
+            <th>Series</th><th>n</th><th>Batch time</th><th>ns/obj</th>
+            <th>Allocated</th><th>B/obj alloc</th><th>Resident B/obj</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section>
+  <h2>Reading this</h2>
+  <div class="card">
+    <p class="note" style="margin-top:0">
+      <b>Conversion is linear in object count, at every shape.</b> The power-law exponent lands
+      between 0.98 and 1.07 across all nine series — no super-linear GC term emerges up to 1M live
+      objects. Memory is linear to a fraction of a percent: resident bytes per object are flat from
+      4k to 1M (72.0&nbsp;B for a minimal Namespace at both ends). So extrapolating to 10M is an
+      extrapolation of slope only, which is the well-behaved kind.
+    </p>
+    <p class="note">
+      <b>Time is not the binding constraint; memory is.</b> 10M pods convert in tens of seconds but
+      only a few GiB resident. 10M large NetworkPolicies would be ~25&nbsp;minutes of CPU and
+      ~870&nbsp;GiB — the machine runs out of RAM roughly three orders of magnitude before it runs
+      out of patience. The benchmark enforces this itself: cases over <code>-repr.membudget</code>
+      skip and report their estimate rather than driving the box into swap.
+    </p>
+    <p class="note">
+      <b>Allocated ≠ resident, and the gap is the interesting part.</b> For Namespaces and Pods the
+      two track each other. For a medium NetworkPolicy the batch allocates ~25.9&nbsp;KB per object
+      but retains ~9.1&nbsp;KB — roughly two thirds is transient, thrown off while compiling
+      predicates. That churn is what the collector pays for even though it never shows up in the
+      resident figure.
+    </p>
+    <p class="note">
+      <b>Caveats.</b> Single-threaded, one machine, one Go version; source-object generation runs
+      with the timer stopped, so these are conversion costs only, not decode-plus-convert. The
+      NetworkPolicy medium and large series are measured to 1e5 and 1e4 respectively — everything
+      past that is model, and the charts dash the line where measurement stops.
+    </p>
+  </div>
+</section>
+
+</div>
+
+<script>
+"use strict";
+
+/* ── Measured data ───────────────────────────────────────────────────────────
+ * go test ./internal/repr/ -run '^$' -bench BenchmarkNew -benchmem -benchtime=1x
+ * Apple M3 (8 cores), 16 GiB, darwin/arm64, go1.26.5.
+ *
+ * time  : ns for the whole batch of n objects (conversion only; source-object
+ *         generation runs with the timer stopped).
+ * alloc : B/op for the batch — total bytes allocated, i.e. GC churn.
+ * retain: bytes/object still reachable after a collection, with Original
+ *         cleared and the sources dropped — the resident footprint. Measured
+ *         separately at n = 4096 … 1M; flat in n to within 0.5 B.
+ * Cases marked skipped exceeded the 4 GiB -repr.membudget; the benchmark's own
+ * live-heap estimate is recorded instead.
+ * ───────────────────────────────────────────────────────────────────────────*/
+const DATA = {
+  Namespace: {
+    minimal: {
+      time:   [[1e3, 180875], [1e4, 2027500], [1e5, 17525166], [1e6, 161799747]],
+      alloc:  [[1e3, 152192], [1e4, 1521920], [1e5, 15153680], [1e6, 144753696]],
+      retain: [[4096, 72.0], [32768, 72.1], [262144, 72.0], [1e6, 72.0]],
+    },
+    medium: {
+      time:   [[1e3, 385209], [1e4, 4674500], [1e5, 61083917], [1e6, 479576293]],
+      alloc:  [[1e3, 424192], [1e4, 4241936], [1e5, 42255376], [1e6, 416655472]],
+      retain: [[4096, 456.4], [32768, 456.1], [262144, 456.0], [1e6, 456.0]],
+    },
+    large: {
+      time:   [[1e3, 2313500], [1e4, 25415750], [1e5, 242056500], [1e6, 2546217789]],
+      alloc:  [[1e3, 1512192], [1e4, 15121936], [1e5, 150555696], [1e6, 1504156144]],
+      retain: [[4096, 2288.3], [32768, 2288.0], [262144, 2288.0], [1e6, 2288.0]],
+    },
+  },
+  Pod: {
+    minimal: {
+      time:   [[1e3, 174667], [1e4, 2678708], [1e5, 29227834], [1e6, 297137294]],
+      alloc:  [[1e3, 176192], [1e4, 1761920], [1e5, 17111328], [1e6, 168311536]],
+      retain: [[4096, 144.3], [32768, 144.1], [262144, 144.0], [1e6, 144.0]],
+    },
+    medium: {
+      time:   [[1e3, 480625], [1e4, 6494375], [1e5, 59861626], [1e6, 605191960]],
+      alloc:  [[1e3, 472192], [1e4, 4721920], [1e5, 46686736], [1e6, 464286768]],
+      retain: [[4096, 552.3], [32768, 552.0], [262144, 552.0], [1e6, 552.0]],
+    },
+    large: {
+      time:   [[1e3, 2845333], [1e4, 24503917], [1e5, 260628001], [1e6, 2619710916]],
+      alloc:  [[1e3, 1560560], [1e4, 15601920], [1e5, 155314896], [1e6, 1552115312]],
+      retain: [[4096, 2408.3], [32768, 2408.1], [262144, 2408.0], [1e6, 2408.0]],
+    },
+  },
+  NetworkPolicy: {
+    minimal: {
+      time:   [[1e3, 1088417], [1e4, 9682876], [1e5, 97805459], [1e6, 1036401955]],
+      alloc:  [[1e3, 2104336], [1e4, 21041936], [1e5, 210009616], [1e6, 2096409856]],
+      retain: [[4096, 784.0], [32768, 784.0], [262144, 784.0], [1e6, 784.0]],
+    },
+    medium: {
+      time:   [[1e3, 14506582], [1e4, 131849376], [1e5, 1340290043]],
+      alloc:  [[1e3, 25896368], [1e4, 258929216], [1e5, 2588849312]],
+      retain: [[4096, 9090.5], [32768, 9096.1], [262144, 9053.4]],
+      skipped: [{ n: 1e6, note: "1M would hold ~8.5 GiB live — over the 4 GiB budget, skipped" }],
+    },
+    large: {
+      time:   [[1e3, 146490917], [1e4, 1498858835]],
+      alloc:  [[1e3, 221268912], [1e4, 2212645024]],
+      retain: [[4096, 95192.0], [32768, 95192.0]],
+      skipped: [
+        { n: 1e5, note: "100k would hold ~8.9 GiB live — over the 4 GiB budget, skipped" },
+        { n: 1e6, note: "1M would hold ~88.7 GiB live — over the 4 GiB budget, skipped" },
+      ],
+    },
+  },
+};
+
+const KINDS = ["Namespace", "Pod", "NetworkPolicy"];
+const SHAPES = ["minimal", "medium", "large"];
+const SHAPE_COLOR = { minimal: "var(--series-1)", medium: "var(--series-2)", large: "var(--series-3)" };
+const SHAPE_DESC = {
+  minimal: "1 label · policy of 1 rule × 1 peer × 1 port",
+  medium: "8 labels, dual-stack · 3+3 rules × 3 peers × 3 ports",
+  large: "32 labels, dual-stack · 10+10 rules × 8 peers × 8 ports",
+};
+const MACHINE = { cpu: "Apple M3", cores: 8, ramBytes: 17179869184, go: "go1.26.5 darwin/arm64" };
+const MAX_N = 1e7;
+
+/* ── Models ──────────────────────────────────────────────────────────────────
+ *   proportional  y = a·n          one constant per object; the "flat ns/obj"
+ *                                  reading, and the null hypothesis
+ *   power         y = a·n^b        b > 1 is super-linear drift (a live set the
+ *                                  collector has to keep walking)
+ *   affine        y = a·n + c      per-object cost plus a fixed batch cost
+ * ───────────────────────────────────────────────────────────────────────────*/
+
+// y = a·n. Minimises squared *relative* error, so a is the mean per-object cost.
+function fitProportional(pts) {
+  const a = pts.reduce((s, p) => s + p[1] / p[0], 0) / pts.length;
+  return { kind: "proportional", a, predict: (n) => a * n, label: "y = a·n",
+           t1: ["a", a], t2: null };
+}
+
+// y = a·n^b, by OLS on (log n, log y).
+function fitPower(pts) {
+  const k = pts.length;
+  const lx = pts.map((p) => Math.log(p[0])), ly = pts.map((p) => Math.log(p[1]));
+  const mx = lx.reduce((s, v) => s + v, 0) / k, my = ly.reduce((s, v) => s + v, 0) / k;
+  let num = 0, den = 0;
+  for (let i = 0; i < k; i++) { num += (lx[i] - mx) * (ly[i] - my); den += (lx[i] - mx) ** 2; }
+  const b = den === 0 ? 1 : num / den, a = Math.exp(my - b * mx);
+  return { kind: "power", a, b, predict: (n) => a * Math.pow(n, b), label: "y = a·n^b",
+           t1: ["a", a], t2: ["b", b] };
+}
+
+// y = a·n + c, weighted by 1/y² so the fit is relative-error like the others.
+function fitAffine(pts) {
+  let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const [n, y] of pts) {
+    const w = 1 / (y * y);
+    sw += w; sx += w * n; sy += w * y; sxx += w * n * n; sxy += w * n * y;
+  }
+  const den = sw * sxx - sx * sx;
+  let a, c;
+  if (Math.abs(den) < 1e-30) { a = sy / sx; c = 0; }
+  else { a = (sw * sxy - sx * sy) / den; c = (sy - a * sx) / sw; }
+  return { kind: "affine", a, c, predict: (n) => Math.max(a * n + c, 0), label: "y = a·n + c",
+           t1: ["a", a], t2: ["c", c] };
+}
+
+// R² on log residuals: how much of the spread in log y the fit explains.
+// Comparable across models because every model is scored the same way.
+function logR2(pts, predict) {
+  const ly = pts.map((p) => Math.log(p[1]));
+  const my = ly.reduce((s, v) => s + v, 0) / ly.length;
+  let ssRes = 0, ssTot = 0;
+  pts.forEach((p, i) => {
+    const q = predict(p[0]);
+    if (q > 0) ssRes += (Math.log(q) - ly[i]) ** 2;
+    ssTot += (ly[i] - my) ** 2;
+  });
+  return ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+}
+
+// Worst single-point relative error — the figure that actually bounds a
+// prediction ("within x% at every measured size").
+function maxRelErr(pts, predict) {
+  return pts.reduce((m, p) => Math.max(m, Math.abs(predict(p[0]) - p[1]) / p[1]), 0);
+}
+
+function fitAll(pts) {
+  const out = {};
+  for (const f of [fitProportional(pts), fitPower(pts), fitAffine(pts)]) {
+    f.r2 = logR2(pts, f.predict);
+    f.maxRelErr = maxRelErr(pts, f.predict);
+    f.dof = pts.length - (f.t2 ? 2 : 1);
+    out[f.kind] = f;
+  }
+  return out;
+}
+
+const MODELS = {};
+for (const kind of KINDS) {
+  MODELS[kind] = {};
+  for (const shape of SHAPES) {
+    const s = DATA[kind][shape];
+    // Retention is measured per object, so it is fitted as a total.
+    const retainTotals = s.retain.map((p) => [p[0], p[1] * p[0]]);
+    MODELS[kind][shape] = {
+      time: fitAll(s.time),
+      alloc: fitAll(s.alloc),
+      retain: fitAll(retainTotals),
+      maxTimeN: Math.max(...s.time.map((p) => p[0])),
+      maxRetainN: Math.max(...s.retain.map((p) => p[0])),
+      perObjBytes: s.retain[s.retain.length - 1][1],
+      skipped: s.skipped || [],
+    };
+  }
+}
+
+/* ── Formatting ─────────────────────────────────────────────────────────── */
+// d significant digits, with trailing zeros trimmed ("1 GiB", not "1.00 GiB").
+// Past d digits there is no fraction left to show, so it becomes a plain
+// grouped integer rather than an exponent.
+function sig(v, d = 3) {
+  if (!isFinite(v) || v === 0) return "0";
+  const mag = Math.floor(Math.log10(Math.abs(v)));
+  if (mag >= d) return Math.round(v).toLocaleString("en-US");
+  const s = v.toFixed(Math.min(Math.max(0, d - 1 - mag), 20));
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+const TIME_UNITS = [
+  [1, "ns"], [1e3, "µs"], [1e6, "ms"], [1e9, "s"],
+  [60e9, "min"], [3600e9, "h"], [86400e9, "d"],
+];
+function splitTime(ns) {
+  if (!isFinite(ns) || ns <= 0) return ["0", "ns"];
+  let u = TIME_UNITS[0];
+  for (const c of TIME_UNITS) if (ns >= c[0]) u = c;
+  return [sig(ns / u[0]), u[1]];
+}
+const fmtTime = (ns) => splitTime(ns).join(" ");
+const BYTE_UNITS = [
+  [1, "B"], [1024, "KiB"], [1024 ** 2, "MiB"], [1024 ** 3, "GiB"],
+  [1024 ** 4, "TiB"], [1024 ** 5, "PiB"],
+];
+function splitBytes(b) {
+  if (!isFinite(b) || b <= 0) return ["0", "B"];
+  let u = BYTE_UNITS[0];
+  for (const c of BYTE_UNITS) if (b >= c[0]) u = c;
+  return [sig(b / u[0]), u[1]];
+}
+const fmtBytes = (b) => splitBytes(b).join(" ");
+function fmtCount(n) {
+  if (n >= 1e6) return sig(n / 1e6) + "M";
+  if (n >= 1e3) return sig(n / 1e3) + "k";
+  return String(Math.round(n));
+}
+const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+
+/* ── Chart primitives ───────────────────────────────────────────────────── */
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) if (attrs[k] !== null && attrs[k] !== undefined) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+const log10 = Math.log10;
+
+// Decade ticks covering [lo, hi].
+function decades(lo, hi) {
+  const out = [];
+  for (let e = Math.floor(log10(lo)); e <= Math.ceil(log10(hi)); e++) {
+    const v = Math.pow(10, e);
+    if (v >= lo * 0.999 && v <= hi * 1.001) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * Log–log line chart. Each series carries a fitted curve plus (optionally) the
+ * measured points it was fitted to; the curve is drawn solid where it is backed
+ * by measurement and dashed past the largest measured n.
+ */
+function lineChart(host, cfg) {
+  const tip = host.querySelector(".tip");
+  host.querySelectorAll("svg").forEach((s) => s.remove());
+
+  const W = Math.max(host.clientWidth || 520, 320), H = cfg.height || 300;
+  const M = { t: 14, r: cfg.labelRoom ?? 84, b: 34, l: 62 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const [x0, x1] = cfg.xDomain;
+
+  // y-domain from every curve sample and measured point actually drawn.
+  const samples = [];
+  const NPTS = 90;
+  const xs = [];
+  for (let i = 0; i <= NPTS; i++) xs.push(Math.pow(10, log10(x0) + (log10(x1) - log10(x0)) * i / NPTS));
+  for (const s of cfg.series) {
+    for (const n of xs) { const v = s.curve(n); if (v > 0) samples.push(v); }
+    for (const p of s.measured || []) if (p[1] > 0) samples.push(p[1]);
+  }
+  for (const r of cfg.refLines || []) samples.push(r.y);
+  let ylo = Math.min(...samples), yhi = Math.max(...samples);
+  ylo = Math.pow(10, Math.floor(log10(ylo)));
+  yhi = Math.pow(10, Math.ceil(log10(yhi)));
+  if (yhi / ylo < 10) yhi = ylo * 10;
+
+  const X = (n) => M.l + (log10(n) - log10(x0)) / (log10(x1) - log10(x0)) * iw;
+  const Y = (v) => M.t + ih - (log10(Math.max(v, ylo * 1e-3)) - log10(ylo)) / (log10(yhi) - log10(ylo)) * ih;
+
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+                          "aria-label": cfg.ariaLabel || "" });
+
+  // Extrapolation shade — everything right of the last measurement.
+  if (cfg.extrapolateFrom && cfg.extrapolateFrom < x1) {
+    svg.appendChild(el("rect", { x: X(cfg.extrapolateFrom), y: M.t,
+      width: Math.max(0, M.l + iw - X(cfg.extrapolateFrom)), height: ih, fill: "var(--shade)" }));
+    svg.appendChild(el("text", { x: X(cfg.extrapolateFrom) + 6, y: M.t + 11,
+      "font-size": 10.5, fill: "var(--text-muted)" }, "extrapolated"));
+  }
+
+  // Gridlines + axes.
+  for (const v of decades(ylo, yhi)) {
+    svg.appendChild(el("line", { x1: M.l, x2: M.l + iw, y1: Y(v), y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: M.l - 9, y: Y(v) + 3.5, "text-anchor": "end",
+      "font-size": 11, fill: "var(--text-muted)" }, cfg.yFormat(v)));
+  }
+  for (const v of decades(x0, x1)) {
+    svg.appendChild(el("line", { x1: X(v), x2: X(v), y1: M.t, y2: M.t + ih, stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: X(v), y: M.t + ih + 18, "text-anchor": "middle",
+      "font-size": 11, fill: "var(--text-muted)" }, fmtCount(v)));
+  }
+  svg.appendChild(el("line", { x1: M.l, x2: M.l + iw, y1: M.t + ih, y2: M.t + ih, stroke: "var(--baseline)", "stroke-width": 1 }));
+  svg.appendChild(el("text", { x: M.l + iw / 2, y: H - 1, "text-anchor": "middle",
+    "font-size": 11, fill: "var(--text-muted)" }, cfg.xLabel || "objects"));
+
+  // Reference lines (RAM ceilings, wall-clock landmarks).
+  for (const r of cfg.refLines || []) {
+    if (r.y < ylo || r.y > yhi) continue;
+    svg.appendChild(el("line", { x1: M.l, x2: M.l + iw, y1: Y(r.y), y2: Y(r.y),
+      stroke: r.color || "var(--baseline)", "stroke-width": 1, "stroke-dasharray": "2 3" }));
+    svg.appendChild(el("text", { x: M.l + 5, y: Y(r.y) - 4, "font-size": 10.5,
+      fill: r.color || "var(--text-muted)" }, r.label));
+  }
+
+  // Series.
+  const labels = [];
+  for (const s of cfg.series) {
+    const cut = Math.min(s.solidTo ?? x1, x1);
+    const seg = (a, b) => {
+      const pts = [];
+      for (let i = 0; i <= NPTS; i++) {
+        const n = Math.pow(10, log10(a) + (log10(b) - log10(a)) * i / NPTS);
+        const v = s.curve(n);
+        if (v > 0) pts.push(`${X(n).toFixed(2)},${Y(v).toFixed(2)}`);
+      }
+      return pts.length > 1 ? "M" + pts.join("L") : null;
+    };
+    const solid = cut > x0 ? seg(x0, cut) : null;
+    if (solid) svg.appendChild(el("path", { d: solid, fill: "none", stroke: s.color,
+      "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    if (cut < x1) {
+      const dash = seg(Math.max(cut, x0), x1);
+      if (dash) svg.appendChild(el("path", { d: dash, fill: "none", stroke: s.color,
+        "stroke-width": 2, "stroke-dasharray": "6 5", "stroke-linecap": "round" }));
+    }
+    // Measured points: 9px markers with a 2px surface ring so overlaps stay legible.
+    for (const p of s.measured || []) {
+      if (p[0] < x0 || p[0] > x1 || p[1] <= 0) continue;
+      svg.appendChild(el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 4.5, fill: s.color,
+        stroke: "var(--surface-1)", "stroke-width": 2 }));
+    }
+    if (s.name) labels.push({ name: s.name, color: s.color, y: Y(s.curve(x1)) });
+  }
+
+  // Direct labels at the right edge, pushed apart so they never collide.
+  labels.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) {
+    if (labels[i].y - labels[i - 1].y < 15) labels[i].y = labels[i - 1].y + 15;
+  }
+  for (const l of labels) {
+    const y = Math.min(Math.max(l.y, M.t + 6), M.t + ih);
+    svg.appendChild(el("circle", { cx: M.l + iw + 9, cy: y - 3.5, r: 4, fill: l.color }));
+    svg.appendChild(el("text", { x: M.l + iw + 18, y: y, "font-size": 11.5,
+      fill: "var(--text-secondary)" }, l.name));
+  }
+
+  // Crosshair + tooltip.
+  const cross = el("line", { y1: M.t, y2: M.t + ih, stroke: "var(--baseline)",
+    "stroke-width": 1, opacity: 0 });
+  svg.appendChild(cross);
+  const hit = el("rect", { x: M.l, y: M.t, width: iw, height: ih, fill: "transparent" });
+  svg.appendChild(hit);
+  if (tip) {
+    const move = (ev) => {
+      const box = svg.getBoundingClientRect();
+      const px = (ev.clientX - box.left) * (W / box.width);
+      if (px < M.l || px > M.l + iw) return;
+      const n = Math.pow(10, log10(x0) + (px - M.l) / iw * (log10(x1) - log10(x0)));
+      cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("opacity", 1);
+      let html = `<div class="th">n = ${fmtInt(n)}</div>`;
+      for (const s of cfg.series) {
+        const beyond = s.solidTo && n > s.solidTo;
+        html += `<div class="tr"><span class="dot" style="background:${s.color}"></span>` +
+          `<span class="nm">${s.name || cfg.singleName || "value"}</span>` +
+          `<span class="vl">${cfg.yFormat(s.curve(n), true)}` +
+          `${beyond ? ' <span class="est">est</span>' : ""}</span></div>`;
+      }
+      tip.innerHTML = html;
+      tip.classList.add("on");
+      const tw = tip.offsetWidth || 180;
+      const sx = px * (box.width / W);
+      tip.style.left = Math.min(Math.max(sx + 14, 4), box.width - tw - 4) + "px";
+      tip.style.top = (ev.clientY - box.top - 10) + "px";
+    };
+    hit.addEventListener("mousemove", move);
+    hit.addEventListener("mouseleave", () => { tip.classList.remove("on"); cross.setAttribute("opacity", 0); });
+  }
+
+  host.appendChild(svg);
+}
+
+/**
+ * Horizontal dot plot on a log axis — the honest way to compare magnitudes
+ * spanning four decades (a bar chart would need a zero baseline a log axis
+ * cannot give it).
+ */
+function dotPlot(host, cfg) {
+  host.querySelectorAll("svg").forEach((s) => s.remove());
+  const rows = cfg.rows;
+  const W = Math.max(host.clientWidth || 520, 320);
+  const rowH = 26, groupGap = 10;
+  const M = { t: 10, r: 62, b: 30, l: 106 };
+  let H = M.t + M.b;
+  let seenKinds = new Set();
+  for (const r of rows) { if (!seenKinds.has(r.group)) { seenKinds.add(r.group); H += groupGap; } H += rowH; }
+  const iw = W - M.l - M.r;
+
+  const vals = rows.map((r) => r.value).filter((v) => v > 0);
+  let lo = Math.pow(10, Math.floor(log10(Math.min(...vals))));
+  let hi = Math.pow(10, Math.ceil(log10(Math.max(...vals))));
+  if (hi <= lo) hi = lo * 10;
+  const X = (v) => M.l + (log10(v) - log10(lo)) / (log10(hi) - log10(lo)) * iw;
+
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+                          "aria-label": cfg.ariaLabel || "" });
+  for (const v of decades(lo, hi)) {
+    svg.appendChild(el("line", { x1: X(v), x2: X(v), y1: M.t, y2: H - M.b, stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: X(v), y: H - M.b + 17, "text-anchor": "middle",
+      "font-size": 11, fill: "var(--text-muted)" }, cfg.format(v)));
+  }
+
+  let y = M.t;
+  seenKinds = new Set();
+  for (const r of rows) {
+    if (!seenKinds.has(r.group)) {
+      seenKinds.add(r.group);
+      y += groupGap;
+      svg.appendChild(el("text", { x: 0, y: y + rowH / 2 + 4, "font-size": 11.5,
+        "font-weight": 600, fill: "var(--text-primary)" }, r.group));
+    }
+    const cy = y + rowH / 2;
+    svg.appendChild(el("text", { x: M.l - 10, y: cy + 4, "text-anchor": "end",
+      "font-size": 11.5, fill: "var(--text-secondary)" }, r.label));
+    // Lollipop stem from the axis floor, so position reads as magnitude.
+    svg.appendChild(el("line", { x1: M.l, x2: X(r.value), y1: cy, y2: cy,
+      stroke: r.color, "stroke-width": 2, opacity: 0.32, "stroke-linecap": "round" }));
+    svg.appendChild(el("circle", { cx: X(r.value), cy, r: 5, fill: r.color,
+      stroke: "var(--surface-1)", "stroke-width": 2 }));
+    svg.appendChild(el("text", { x: X(r.value) + 11, y: cy + 4, "font-size": 11,
+      fill: "var(--text-secondary)" }, cfg.format(r.value, true)));
+    y += rowH;
+  }
+  host.appendChild(svg);
+}
+
+/* ── State ──────────────────────────────────────────────────────────────── */
+const state = {
+  model: "affine",
+  kind: "Pod",
+  mix: {
+    Namespace: { n: 1000, shape: "medium" },
+    Pod: { n: 100000, shape: "medium" },
+    NetworkPolicy: { n: 5000, shape: "medium" },
+  },
+};
+
+const PRESETS = [
+  { name: "Small cluster", mix: { Namespace: [50, "minimal"], Pod: [5000, "medium"], NetworkPolicy: [200, "minimal"] } },
+  { name: "5k nodes · 1M pods", mix: { Namespace: [1000, "medium"], Pod: [1000000, "medium"], NetworkPolicy: [20000, "medium"] } },
+  { name: "10M pods", mix: { Namespace: [10000, "medium"], Pod: [10000000, "medium"], NetworkPolicy: [100000, "medium"] } },
+  { name: "Policy-heavy", mix: { Namespace: [5000, "large"], Pod: [500000, "large"], NetworkPolicy: [100000, "large"] } },
+  { name: "10M policies", mix: { Namespace: [10000, "medium"], Pod: [1000000, "medium"], NetworkPolicy: [10000000, "large"] } },
+];
+
+function predict(kind, shape, n, metric) {
+  if (n <= 0) return 0;
+  return MODELS[kind][shape][metric][state.model].predict(n);
+}
+function maxMeasured(kind, shape, metric) {
+  const m = MODELS[kind][shape];
+  return metric === "retain" ? m.maxRetainN : m.maxTimeN;
+}
+
+/* ── Build controls ─────────────────────────────────────────────────────── */
+// Slider position 0…1000 maps logarithmically onto 0 and 100 … 10M.
+function posToN(p) {
+  if (p <= 0) return 0;
+  return Math.round(Math.pow(10, 2 + (p / 1000) * 5));
+}
+function nToPos(n) {
+  if (n <= 100) return n <= 0 ? 0 : 1;
+  return Math.round((log10(n) - 2) / 5 * 1000);
+}
+
+const controlsEl = document.getElementById("controls");
+for (const kind of KINDS) {
+  const c = state.mix[kind];
+  const div = document.createElement("div");
+  div.className = "ctl";
+  div.innerHTML =
+    `<div class="ctl-head"><span class="swatch" style="background:var(--text-muted)"></span><h3>${kind}</h3></div>
+     <div class="row">
+       <input type="number" min="0" max="10000000" step="1" value="${c.n}" id="num-${kind}" aria-label="${kind} count">
+       <select id="shape-${kind}" aria-label="${kind} shape">
+         ${SHAPES.map((s) => `<option value="${s}"${s === c.shape ? " selected" : ""}>${s}</option>`).join("")}
+       </select>
+     </div>
+     <input type="range" min="0" max="1000" value="${nToPos(c.n)}" id="rng-${kind}" aria-label="${kind} count slider">
+     <div class="shape-desc" id="desc-${kind}">${SHAPE_DESC[c.shape]}</div>`;
+  controlsEl.appendChild(div);
+
+  const num = div.querySelector(`#num-${kind}`);
+  const rng = div.querySelector(`#rng-${kind}`);
+  const sel = div.querySelector(`#shape-${kind}`);
+  num.addEventListener("input", () => {
+    const v = Math.max(0, Math.min(MAX_N, Number(num.value) || 0));
+    state.mix[kind].n = v; rng.value = nToPos(v); render();
+  });
+  rng.addEventListener("input", () => {
+    const v = posToN(Number(rng.value));
+    state.mix[kind].n = v; num.value = v; render();
+  });
+  sel.addEventListener("change", () => {
+    state.mix[kind].shape = sel.value;
+    div.querySelector(`#desc-${kind}`).textContent = SHAPE_DESC[sel.value];
+    render();
+  });
+}
+
+const presetsEl = document.getElementById("presets");
+for (const p of PRESETS) {
+  const b = document.createElement("button");
+  b.className = "ghost";
+  b.textContent = p.name;
+  b.addEventListener("click", () => {
+    for (const kind of KINDS) {
+      const [n, shape] = p.mix[kind];
+      state.mix[kind] = { n, shape };
+      document.getElementById(`num-${kind}`).value = n;
+      document.getElementById(`rng-${kind}`).value = nToPos(n);
+      document.getElementById(`shape-${kind}`).value = shape;
+      document.getElementById(`desc-${kind}`).textContent = SHAPE_DESC[shape];
+    }
+    render();
+  });
+  presetsEl.appendChild(b);
+}
+
+const tabsEl = document.getElementById("kind-tabs");
+for (const kind of KINDS) {
+  const b = document.createElement("button");
+  b.textContent = kind;
+  b.setAttribute("aria-pressed", String(kind === state.kind));
+  b.addEventListener("click", () => {
+    state.kind = kind;
+    [...tabsEl.children].forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+    render();
+  });
+  tabsEl.appendChild(b);
+}
+
+document.getElementById("model").addEventListener("change", (e) => {
+  state.model = e.target.value; render();
+});
+document.getElementById("theme").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  render();
+});
+
+document.getElementById("prov").textContent =
+  `go test ./internal/repr/ -bench BenchmarkNew -benchmem -benchtime=1x  ·  ` +
+  `${MACHINE.cpu}, ${MACHINE.cores} cores, ${fmtBytes(MACHINE.ramBytes)} RAM, ${MACHINE.go}`;
+
+function legendHTML(extra) {
+  return SHAPES.map((s) =>
+    `<span class="item"><span class="dot" style="background:${SHAPE_COLOR[s]}"></span>${s}</span>`).join("") +
+    (extra || "");
+}
+const DASH_KEY = `<span class="item"><span class="dash"></span>model, past the last measurement</span>`;
+document.getElementById("lg-time").innerHTML = legendHTML(DASH_KEY);
+document.getElementById("lg-mem").innerHTML = legendHTML(DASH_KEY);
+document.getElementById("lg-dot").innerHTML = legendHTML();
+document.getElementById("lg-dot2").innerHTML = legendHTML();
+
+/* ── Render ─────────────────────────────────────────────────────────────── */
+function render() {
+  renderPrediction();
+  renderScalingCharts();
+  renderDotPlots();
+  renderSweep();
+  renderFitTable();
+  renderDataTable();
+}
+
+function renderPrediction() {
+  let tTime = 0, tRetain = 0, tAlloc = 0, tCount = 0;
+  const extrapolated = [];
+  const rows = [];
+
+  for (const kind of KINDS) {
+    const { n, shape } = state.mix[kind];
+    const time = predict(kind, shape, n, "time");
+    const retain = predict(kind, shape, n, "retain");
+    const alloc = predict(kind, shape, n, "alloc");
+    tTime += time; tRetain += retain; tAlloc += alloc; tCount += n;
+
+    const lim = maxMeasured(kind, shape, "time");
+    const beyond = n > lim;
+    if (beyond && n > 0) extrapolated.push(`${kind}/${shape} (measured to ${fmtCount(lim)}, asked for ${fmtCount(n)})`);
+    rows.push({ kind, shape, n, time, retain, alloc, lim, beyond });
+  }
+
+  const [tv, tu] = splitTime(tTime);
+  document.getElementById("v-time").innerHTML = `${tv}<span class="unit">${tu}</span>`;
+  document.getElementById("f-time").textContent = tCount > 0
+    ? `${fmtInt(tCount)} objects · ${fmtInt(tCount / (tTime / 1e9))} obj/s, single-threaded`
+    : "no objects";
+
+  const [rv, ru] = splitBytes(tRetain);
+  document.getElementById("v-retain").innerHTML = `${rv}<span class="unit">${ru}</span>`;
+  document.getElementById("f-retain").textContent = tCount > 0
+    ? `${sig(tRetain / tCount)} B per object across the mix`
+    : "—";
+
+  const [av, au] = splitBytes(tAlloc);
+  document.getElementById("v-alloc").innerHTML = `${av}<span class="unit">${au}</span>`;
+  document.getElementById("f-alloc").textContent = tRetain > 0
+    ? `${sig(tAlloc / tRetain)}× the resident set passes through the collector`
+    : "—";
+
+  const ramFlag = document.getElementById("flag-ram");
+  if (tRetain > MACHINE.ramBytes) {
+    ramFlag.classList.remove("hidden");
+    document.getElementById("flag-ram-text").innerHTML =
+      `<b>Does not fit.</b> ${fmtBytes(tRetain)} resident is ${sig(tRetain / MACHINE.ramBytes)}× the ` +
+      `${fmtBytes(MACHINE.ramBytes)} on the benchmark machine — and that is the converted set alone, ` +
+      `before the renderer's own working memory. This is the constraint that binds long before time does.`;
+  } else ramFlag.classList.add("hidden");
+
+  const exFlag = document.getElementById("flag-extrap");
+  if (extrapolated.length) {
+    exFlag.classList.remove("hidden");
+    document.getElementById("flag-extrap-text").innerHTML =
+      `<b>Extrapolating.</b> ${extrapolated.join("; ")}. The fits are near-perfectly linear over the ` +
+      `measured range, so the slope should hold — but nothing here was measured at that size.`;
+  } else exFlag.classList.add("hidden");
+
+  const tb = document.querySelector("#mix-table tbody");
+  tb.innerHTML = rows.map((r) =>
+    `<tr>
+      <td class="name">${r.kind}</td>
+      <td><span class="mk" style="background:${SHAPE_COLOR[r.shape]}"></span>${r.shape}</td>
+      <td>${fmtInt(r.n)}</td>
+      <td>${r.n ? fmtTime(r.time) : "—"}</td>
+      <td>${r.n ? sig(r.time / r.n) : "—"}</td>
+      <td>${r.n ? fmtBytes(r.retain) : "—"}</td>
+      <td>${r.n ? sig(r.retain / r.n) : "—"}</td>
+      <td>${r.n ? fmtBytes(r.alloc) : "—"}</td>
+      <td class="dim">${!r.n ? "—" : r.beyond ? "model, beyond " + fmtCount(r.lim) : "measured range"}</td>
+    </tr>`).join("") +
+    `<tr class="group">
+      <td class="name"><b>Total</b></td><td></td><td><b>${fmtInt(tCount)}</b></td>
+      <td><b>${fmtTime(tTime)}</b></td><td class="dim">${tCount ? sig(tTime / tCount) : "—"}</td>
+      <td><b>${fmtBytes(tRetain)}</b></td><td class="dim">${tCount ? sig(tRetain / tCount) : "—"}</td>
+      <td><b>${fmtBytes(tAlloc)}</b></td><td></td>
+    </tr>`;
+}
+
+function renderScalingCharts() {
+  const kind = state.kind;
+  document.getElementById("t-time").textContent = `${kind} — conversion time`;
+  document.getElementById("t-mem").textContent = `${kind} — resident memory`;
+
+  const timeSeries = SHAPES.map((shape) => ({
+    name: shape,
+    color: SHAPE_COLOR[shape],
+    curve: (n) => predict(kind, shape, n, "time"),
+    measured: DATA[kind][shape].time,
+    solidTo: MODELS[kind][shape].maxTimeN,
+  }));
+  const memSeries = SHAPES.map((shape) => ({
+    name: shape,
+    color: SHAPE_COLOR[shape],
+    curve: (n) => predict(kind, shape, n, "retain"),
+    measured: DATA[kind][shape].retain.map((p) => [p[0], p[0] * p[1]]),
+    solidTo: MODELS[kind][shape].maxRetainN,
+  }));
+
+  const firstCut = Math.min(...SHAPES.map((s) => MODELS[kind][s].maxTimeN));
+  lineChart(document.getElementById("c-time"), {
+    xDomain: [1e3, MAX_N],
+    series: timeSeries,
+    extrapolateFrom: firstCut,
+    yFormat: (v) => fmtTime(v),
+    xLabel: `${kind}s converted`,
+    refLines: [
+      { y: 1e9, label: "1 s" },
+      { y: 60e9, label: "1 min" },
+      { y: 3600e9, label: "1 h" },
+    ],
+    ariaLabel: `${kind} conversion time versus object count, log-log, three shapes`,
+  });
+
+  lineChart(document.getElementById("c-mem"), {
+    xDomain: [1e3, MAX_N],
+    series: memSeries,
+    extrapolateFrom: Math.min(...SHAPES.map((s) => MODELS[kind][s].maxRetainN)),
+    yFormat: (v) => fmtBytes(v),
+    xLabel: `${kind}s converted`,
+    refLines: [
+      { y: MACHINE.ramBytes, label: "16 GiB — this machine", color: "var(--critical)" },
+      { y: 128 * 1024 ** 3, label: "128 GiB" },
+    ],
+    ariaLabel: `${kind} resident memory versus object count, log-log, three shapes`,
+  });
+
+  const cuts = SHAPES.map((s) => `${s} to ${fmtCount(MODELS[kind][s].maxTimeN)}`).join(", ");
+  const skips = [].concat(...SHAPES.map((s) => MODELS[kind][s].skipped.map((k) => k.note)));
+  document.getElementById("extrap-note").innerHTML =
+    `Measured range for ${kind}: ${cuts}. Solid line is fitted over measured points; dashed is ` +
+    `extrapolation.` + (skips.length ? ` The benchmark refused the rest — ${skips.join("; ")}.` : "");
+}
+
+function renderDotPlots() {
+  const timeRows = [], memRows = [];
+  for (const kind of KINDS) for (const shape of SHAPES) {
+    const m = MODELS[kind][shape];
+    timeRows.push({ group: kind, label: shape, color: SHAPE_COLOR[shape],
+      value: m.time[state.model].a });
+    memRows.push({ group: kind, label: shape, color: SHAPE_COLOR[shape],
+      value: m.perObjBytes });
+  }
+  dotPlot(document.getElementById("c-dot-time"), {
+    rows: timeRows,
+    format: (v) => fmtTime(v),
+    ariaLabel: "Per-object conversion time by kind and shape",
+  });
+  dotPlot(document.getElementById("c-dot-mem"), {
+    rows: memRows,
+    format: (v) => fmtBytes(v),
+    ariaLabel: "Per-object resident bytes by kind and shape",
+  });
+}
+
+function renderSweep() {
+  const total = KINDS.reduce((s, k) => s + state.mix[k].n, 0);
+  if (total <= 0) return;
+  const scaleOf = (n) => n / total;
+  const mixCurve = (metric) => (n) => KINDS.reduce((s, k) => {
+    const share = state.mix[k].n * scaleOf(n);
+    return s + (share > 0 ? predict(k, state.mix[k].shape, share, metric) : 0);
+  }, 0);
+
+  // The mix's own composition decides where measurement stops: the first
+  // component to run past its largest measured n takes the whole curve with it.
+  const solidFor = (metric) => Math.min(...KINDS.filter((k) => state.mix[k].n > 0).map((k) =>
+    maxMeasured(k, state.mix[k].shape, metric) / (state.mix[k].n / total)));
+  const solidTo = solidFor("time"), solidToMem = solidFor("retain");
+
+  lineChart(document.getElementById("c-sweep-time"), {
+    xDomain: [1e3, MAX_N],
+    series: [{ name: null, color: "var(--series-1)", curve: mixCurve("time"), solidTo }],
+    extrapolateFrom: solidTo,
+    yFormat: (v) => fmtTime(v),
+    xLabel: "total resources in the cluster",
+    labelRoom: 22,
+    singleName: "total time",
+    refLines: [{ y: 1e9, label: "1 s" }, { y: 60e9, label: "1 min" }, { y: 3600e9, label: "1 h" }],
+    ariaLabel: "Total conversion time for the configured mix, swept to 10 million resources",
+  });
+  lineChart(document.getElementById("c-sweep-mem"), {
+    xDomain: [1e3, MAX_N],
+    series: [{ name: null, color: "var(--series-1)", curve: mixCurve("retain"), solidTo: solidToMem }],
+    extrapolateFrom: solidToMem,
+    yFormat: (v) => fmtBytes(v),
+    xLabel: "total resources in the cluster",
+    labelRoom: 22,
+    singleName: "resident",
+    refLines: [
+      { y: MACHINE.ramBytes, label: "16 GiB — this machine", color: "var(--critical)" },
+      { y: 128 * 1024 ** 3, label: "128 GiB" },
+    ],
+    ariaLabel: "Total resident memory for the configured mix, swept to 10 million resources",
+  });
+}
+
+const METRIC_LABEL = { time: "time", alloc: "allocated", retain: "resident" };
+function renderFitTable() {
+  const tb = document.querySelector("#fit-table tbody");
+  let html = "";
+  for (const kind of KINDS) for (const shape of SHAPES) {
+    const m = MODELS[kind][shape];
+    let first = true;
+    for (const metric of ["time", "alloc", "retain"]) {
+      for (const mk of ["proportional", "power", "affine"]) {
+        const f = m[metric][mk];
+        const unit = metric === "time" ? fmtTime : fmtBytes;
+        const t2 = f.t2 ? (f.t2[0] === "b" ? `b = ${f.t2[1].toFixed(4)}` : `c = ${unit(f.t2[1])}`) : "—";
+        const sel = mk === state.model ? ' style="font-weight:600"' : "";
+        html += `<tr${first ? ' class="group"' : ""}${sel}>
+          <td class="name">${first ? `<span class="mk" style="background:${SHAPE_COLOR[shape]}"></span>${kind}/${shape}` : ""}</td>
+          <td class="dim">${METRIC_LABEL[metric]}</td>
+          <td>${f.label}</td>
+          <td>${unit(f.a)}</td>
+          <td class="dim">${t2}</td>
+          <td>${f.dof > 0 ? f.r2.toFixed(5) : '<span class="dim">n/a</span>'}</td>
+          <td>${f.dof > 0 ? (f.maxRelErr * 100).toFixed(1) + "%" : '<span class="dim">n/a</span>'}</td>
+          <td>${unit(f.predict(1e6))}</td>
+          <td>${unit(f.predict(1e7))}</td>
+        </tr>`;
+        first = false;
+      }
+    }
+  }
+  tb.innerHTML = html;
+}
+
+function renderDataTable() {
+  const tb = document.querySelector("#data-table tbody");
+  let html = "";
+  for (const kind of KINDS) for (const shape of SHAPES) {
+    const s = DATA[kind][shape];
+    const retainAt = new Map(s.retain);
+    const ns = [...new Set([...s.time.map((p) => p[0]), ...s.retain.map((p) => p[0])])].sort((a, b) => a - b);
+    let first = true;
+    for (const n of ns) {
+      const t = s.time.find((p) => p[0] === n);
+      const a = s.alloc.find((p) => p[0] === n);
+      html += `<tr${first ? ' class="group"' : ""}>
+        <td class="name">${first ? `<span class="mk" style="background:${SHAPE_COLOR[shape]}"></span>${kind}/${shape}` : ""}</td>
+        <td>${fmtInt(n)}</td>
+        <td>${t ? fmtTime(t[1]) : '<span class="dim">—</span>'}</td>
+        <td>${t ? sig(t[1] / n) : '<span class="dim">—</span>'}</td>
+        <td>${a ? fmtBytes(a[1]) : '<span class="dim">—</span>'}</td>
+        <td>${a ? sig(a[1] / n) : '<span class="dim">—</span>'}</td>
+        <td>${retainAt.has(n) ? sig(retainAt.get(n), 4) : '<span class="dim">—</span>'}</td>
+      </tr>`;
+      first = false;
+    }
+    for (const sk of s.skipped || []) {
+      html += `<tr><td></td><td>${fmtInt(sk.n)}</td><td colspan="5" class="dim">${sk.note}</td></tr>`;
+    }
+  }
+  tb.innerHTML = html;
+}
+
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 120);
+});
+
+render();
+</script>
+</body>
+</html>
