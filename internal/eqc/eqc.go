@@ -77,23 +77,28 @@ func (cl *Classes) Get(ns, name string) (*Class, bool) {
 // Add the named object with the given key/value set, creating the equivalence
 // class for kv if this is the first object to carry it. Adding a name that is
 // already tracked in ns behaves as an Update of that object.
-func (cl *Classes) Add(ns, name string, kv *kv.KV) {
-	cl.set(ns, name, kv)
+//
+// The Class now holding the object is returned: a caller that keeps its own
+// record of the object (store.Pods does) has to link it to the class, and
+// looking the class back up would repeat work set has already done.
+func (cl *Classes) Add(ns, name string, kv *kv.KV) *Class {
+	return cl.set(ns, name, kv)
 }
 
 // Update the key/value set of the named object, moving it to the class for kv
 // (creating that class if needed) and dropping the class it came from if that
 // leaves it empty. An object that is not currently tracked is added, so a
-// missed Add does not lose the object.
-func (cl *Classes) Update(ns, name string, kv *kv.KV) {
-	cl.set(ns, name, kv)
+// missed Add does not lose the object. The Class now holding the object is
+// returned, which for an Update may be a different one than before.
+func (cl *Classes) Update(ns, name string, kv *kv.KV) *Class {
+	return cl.set(ns, name, kv)
 }
 
 // set places the named object in the class for kv, evicting it from whatever
 // class it is in now. Add and Update are the same operation approached from
 // either side: both have to handle the object being absent (nothing to evict)
 // and the object already sitting in the right class (nothing to do).
-func (cl *Classes) set(ns, name string, kv *kv.KV) {
+func (cl *Classes) set(ns, name string, kv *kv.KV) *Class {
 	pns, ok := cl.byNs[ns]
 	if !ok {
 		pns = &perNs{
@@ -110,7 +115,7 @@ func (cl *Classes) set(ns, name string, kv *kv.KV) {
 		if cur.kv.Equal(kv) {
 			// Already in the right class: the common Update case, where an
 			// object changed in some way that did not touch its labels.
-			return
+			return cur
 		}
 		pns.evict(name, cur)
 	}
@@ -118,6 +123,7 @@ func (cl *Classes) set(ns, name string, kv *kv.KV) {
 	cls := pns.classFor(ns, kv)
 	cls.objs[name] = struct{}{}
 	pns.byName[name] = cls
+	return cls
 }
 
 // Delete the named object. Deleting an object that is not tracked is a no-op.
