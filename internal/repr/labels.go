@@ -9,14 +9,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// NewLabels converts a Kubernetes label map into the matching-optimized form
+// labelsToKV converts a Kubernetes label map into the matching-optimized form
 // repr stores it in. The result is immutable and safe to copy by value and to
 // match against from many goroutines.
-func NewLabels(labels map[string]string) kv.KV {
+func labelsToKV(labels map[string]string) kv.KV {
 	return *kv.New(maps.All(labels), len(labels))
 }
 
-// NewPredicate compiles sel into the matching-optimized form repr stores
+// selectorToPred compiles sel into the matching-optimized form repr stores
 // selectors in. The result is immutable and safe to match against from many
 // goroutines.
 //
@@ -25,7 +25,7 @@ func NewLabels(labels map[string]string) kv.KV {
 // as an empty one ("match everything"), and only the caller knows what the
 // omission means for the field it is reading, so the distinction is preserved
 // rather than resolved here.
-func NewPredicate(sel *metav1.LabelSelector) (*pred.Predicate, error) {
+func selectorToPred(sel *metav1.LabelSelector) (*pred.Predicate, error) {
 	if sel == nil {
 		return nil, nil
 	}

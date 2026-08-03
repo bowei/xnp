@@ -60,7 +60,7 @@ type Port struct {
 // policy that would render wrongly is rejected even if no pod ever selects
 // it, rather than at the point some renderer happens to evaluate the rule.
 func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
-	podSelector, err := NewPredicate(&np.Spec.PodSelector)
+	podSelector, err := selectorToPred(&np.Spec.PodSelector)
 	if err != nil {
 		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
 	}
@@ -96,7 +96,10 @@ func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
 	}, nil
 }
 
-func newRule(peers []networkingv1.NetworkPolicyPeer, ports []networkingv1.NetworkPolicyPort) (Rule, error) {
+func newRule(
+	peers []networkingv1.NetworkPolicyPeer,
+	ports []networkingv1.NetworkPolicyPort,
+) (Rule, error) {
 	convertedPeers, err := newPeers(peers)
 	if err != nil {
 		return Rule{}, err
@@ -114,11 +117,11 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 	}
 	out := make([]Peer, len(peers))
 	for i, p := range peers {
-		podSelector, err := NewPredicate(p.PodSelector)
+		podSelector, err := selectorToPred(p.PodSelector)
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: podSelector: %w", i, err)
 		}
-		nsSelector, err := NewPredicate(p.NamespaceSelector)
+		nsSelector, err := selectorToPred(p.NamespaceSelector)
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: namespaceSelector: %w", i, err)
 		}

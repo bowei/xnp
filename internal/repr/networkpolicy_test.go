@@ -48,8 +48,8 @@ func TestNewNetworkPolicy(t *testing.T) {
 		t.Fatalf("PolicyTypes = %v, want 2 entries", got.PolicyTypes)
 	}
 
-	web := NewLabels(map[string]string{"app": "web"})
-	db := NewLabels(map[string]string{"app": "db"})
+	web := labelsToKV(map[string]string{"app": "web"})
+	db := labelsToKV(map[string]string{"app": "db"})
 	if !got.PodSelector.Match(&web) || got.PodSelector.Match(&db) {
 		t.Errorf("PodSelector matched (web, db) = (%v, %v), want (true, false)",
 			got.PodSelector.Match(&web), got.PodSelector.Match(&db))
@@ -64,7 +64,7 @@ func TestNewNetworkPolicy(t *testing.T) {
 		t.Fatalf("Peers = %d, want 3", len(rule.Peers))
 	}
 
-	client := NewLabels(map[string]string{"role": "client"})
+	client := labelsToKV(map[string]string{"role": "client"})
 	if p := rule.Peers[0]; p.PodSelector == nil || !p.PodSelector.Match(&client) {
 		t.Errorf("Peers[0].PodSelector did not match role=client")
 	} else if p.NamespaceSelector != nil {
@@ -105,7 +105,7 @@ func TestNewNetworkPolicy_EmptySpec(t *testing.T) {
 		t.Fatalf("NewNetworkPolicy: %v", err)
 	}
 	// An empty podSelector selects every pod in the policy's namespace.
-	unlabeled := NewLabels(nil)
+	unlabeled := labelsToKV(nil)
 	if got.PodSelector == nil || !got.PodSelector.Match(&unlabeled) {
 		t.Errorf("PodSelector did not match an unlabeled pod, want the empty selector to match everything")
 	}

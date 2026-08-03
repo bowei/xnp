@@ -29,7 +29,7 @@ func NewPod(pod *corev1.Pod) (Pod, error) {
 	return Pod{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
-		Labels:    NewLabels(pod.Labels),
+		Labels:    labelsToKV(pod.Labels),
 		IPs:       ips,
 		Original:  pod,
 	}, nil

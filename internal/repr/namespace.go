@@ -18,7 +18,7 @@ type Namespace struct {
 func NewNamespace(ns *corev1.Namespace) Namespace {
 	return Namespace{
 		Name:     ns.Name,
-		Labels:   NewLabels(ns.Labels),
+		Labels:   labelsToKV(ns.Labels),
 		Original: ns,
 	}
 }

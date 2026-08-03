@@ -1,0 +1,96 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{xspace}
+
+\begin{document}
+
+\title{Controller Workflow}
+\author{Bowei Du {\tt <bowei.du@gmail.com>}}
+\date{}
+\maketitle
+
+\newcommand{\knp}{{\tt NetworkPolicy}\xspace}
+\newcommand{\kpod}{{\tt Pod}\xspace}
+\newcommand{\kns}{{\tt Namespace}\xspace}
+\newcommand{\podeqc}{$\text{EQC}_{\text{pod}}$\xspace}
+
+\section{Concepts}
+
+\paragraph{Relevant labels} 
+
+Only labels that appear in \knp objects should be tracked. All other
+labels can be ignored.
+
+\paragraph{Equivalence class}
+
+\kpod can be grouped into equivalence classes of the same labels. This optimizes
+for use cases where multiple Pods map share the same relevant label set. Call
+this \podeqc.
+
+Similarly \kns can also be grouped, although this use case is less common.
+
+\paragraph{Policy types}
+
+We can divide \knp by the scope of references:
+
+\begin{itemize}
+    \item Single-namespace: only references a single namespace.
+    \item Low namespace cardinality: references $\geq$ 10 namespaces.
+    \item High namespace cardinality: $>$ 10 to all namespaces in the cluster.
+\end{itemize}
+
+\paragraph{Rendered policy}
+
+A NetworkPolicy when rendered becomes:
+
+\begin{itemize}
+    \item Source: \podeqc or IP block
+    \item Dest: \podeqc or IP block
+    \item Direction: INGRESS or EGRESS
+    \item Disposition: ACCEPT or DROP
+\end{itemize}
+
+\section{Startup}
+
+\begin{enumerate}
+    \item Sync K8s object caches (\knp, \kpod, \kns).
+    \item Extract relevant label keys from NetworkPolicies.
+    \item Map API objects to their optimized representation:
+    \begin{enumerate}
+        \item Pod
+            \begin{enumerate}
+                \item Construct relevant label KV.
+                \item Add to internal store.
+                \item Link to equivalence class.
+            \end{enumerate}
+        \item Namespace: 
+            \begin{enumerate}
+                \item Construct relevant label KV.
+                \item (Not done yet) Link to equivalence class.
+            \end{enumerate}
+        \item NetworkPolicy
+            \begin{enumerate}
+                \item Construct Predicates from LabelSelector.
+            \end{enumerate}
+    \item Resolve policies for each namespace and store them to the
+            resolved policy cache.
+    \end{enumerate}
+\end{enumerate}
+
+At this point the controller is ready to run watchers for events and update
+its state in an incremental manner.
+
+\section{Incremental update}
+
+\subsection{Pod}
+\subsubsection{Upsert}
+\subsubsection{Delete}
+\subsection{NetworkPolicy}
+\subsubsection{Upsert}
+\subsubsection{Delete}
+\subsection{Namespace}
+\subsubsection{Upsert}
+\subsubsection{Delete}
+
+\end{document}

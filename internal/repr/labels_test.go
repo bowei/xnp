@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewLabels(t *testing.T) {
-	labels := NewLabels(map[string]string{"app": "web", "tier": "prod"})
+	labels := labelsToKV(map[string]string{"app": "web", "tier": "prod"})
 	if labels.Len() != 2 {
 		t.Errorf("Len() = %d, want 2", labels.Len())
 	}
@@ -18,15 +18,15 @@ func TestNewLabels(t *testing.T) {
 		t.Errorf("Get(\"missing\") ok = true, want false")
 	}
 
-	empty := NewLabels(nil)
+	empty := labelsToKV(nil)
 	if empty.Len() != 0 {
 		t.Errorf("NewLabels(nil).Len() = %d, want 0", empty.Len())
 	}
 }
 
 func TestNewPredicate(t *testing.T) {
-	web := NewLabels(map[string]string{"app": "web", "env": "prod"})
-	db := NewLabels(map[string]string{"app": "db"})
+	web := labelsToKV(map[string]string{"app": "web", "env": "prod"})
+	db := labelsToKV(map[string]string{"app": "db"})
 
 	for _, tc := range []struct {
 		name    string
@@ -91,7 +91,7 @@ func TestNewPredicate(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := NewPredicate(tc.sel)
+			p, err := selectorToPred(tc.sel)
 			if err != nil {
 				t.Fatalf("NewPredicate: %v", err)
 			}
@@ -109,7 +109,7 @@ func TestNewPredicate(t *testing.T) {
 }
 
 func TestNewPredicate_Nil(t *testing.T) {
-	p, err := NewPredicate(nil)
+	p, err := selectorToPred(nil)
 	if err != nil {
 		t.Fatalf("NewPredicate(nil): %v", err)
 	}
@@ -122,7 +122,7 @@ func TestNewPredicate_UnsupportedOperator(t *testing.T) {
 	sel := &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 		Key: "app", Operator: "Bogus", Values: []string{"web"},
 	}}}
-	if _, err := NewPredicate(sel); err == nil {
+	if _, err := selectorToPred(sel); err == nil {
 		t.Fatalf("NewPredicate: want error for unsupported operator, got nil")
 	}
 }
