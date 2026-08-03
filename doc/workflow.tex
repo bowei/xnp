@@ -22,15 +22,15 @@
 \paragraph{Relevant labels} 
 
 Only labels that appear in \knp objects should be tracked. All other
-labels can be ignored.
+labels can be ignored for the purposes of resolving \knp.
 
 \paragraph{Equivalence class}
 
 \kpod can be grouped into equivalence classes of the same labels. This optimizes
-for use cases where multiple Pods map share the same relevant label set. Call
+for cases where multiple Pods map share the same relevant label set. Call
 this \podeqc.
 
-Similarly \kns can also be grouped, although this use case is less common.
+Similarly \kns can also be grouped, although this make not be as useful.
 
 \paragraph{Policy types}
 
@@ -57,25 +57,25 @@ A NetworkPolicy when rendered becomes:
 
 \begin{enumerate}
     \item Sync K8s object caches (\knp, \kpod, \kns).
-    \item Extract relevant label keys from NetworkPolicies.
+    \item Extract relevant label keys from \knp.
     \item Map API objects to their optimized representation:
     \begin{enumerate}
-        \item Pod
+        \item \kpod
             \begin{enumerate}
                 \item Construct relevant label KV.
                 \item Add to internal store.
                 \item Link to equivalence class.
             \end{enumerate}
-        \item Namespace: 
+        \item \kns 
             \begin{enumerate}
                 \item Construct relevant label KV.
                 \item (Not done yet) Link to equivalence class.
             \end{enumerate}
-        \item NetworkPolicy
+        \item \knp
             \begin{enumerate}
                 \item Construct Predicates from LabelSelector.
             \end{enumerate}
-    \item Resolve policies for each namespace and store them to the
+    \item Resolve \knp against \kpod for each \kns and store them to the
             resolved policy cache.
     \end{enumerate}
 \end{enumerate}
