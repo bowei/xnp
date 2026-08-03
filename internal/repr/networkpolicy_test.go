@@ -41,9 +41,6 @@ func TestNewNetworkPolicy(t *testing.T) {
 	if got.Namespace != "ns" || got.Name != "np1" {
 		t.Fatalf("Namespace/Name = %q/%q, want \"ns\"/\"np1\"", got.Namespace, got.Name)
 	}
-	if got.Original != np {
-		t.Errorf("Original = %p, want %p", got.Original, np)
-	}
 	if len(got.PolicyTypes) != 2 {
 		t.Fatalf("PolicyTypes = %v, want 2 entries", got.PolicyTypes)
 	}

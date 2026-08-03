@@ -36,13 +36,14 @@ package repr
 //     sizes did not fit and by how much — for the larger shapes that estimate
 //     is the answer, not a caveat on it.
 //
-// Every converted object has its Original cleared before it is retained, so
-// what stays resident is the mirror alone. Keeping the pointer would make each
-// case's live set the API object plus the mirror, which is the opposite of the
-// question — repr exists so that the API object need not stay in memory. The
-// mirror still shares the strings it copied out of the original (a Go string
-// copies by header), so what the clearing drops is the API struct itself and
-// every field repr did not keep, which is the bulk of it.
+// What stays resident is the mirror alone: a mirror holds no reference back to
+// the API object, so each case's live set is the converted form and not the
+// converted form plus its source, which is the whole point — repr exists so
+// that the API object need not stay in memory. A mirror does still share what
+// it copied out: the strings (a Go string copies by header), and for a Pod the
+// label map itself, which it keeps in order to reproject it. So the B/op of a
+// Pod case includes that map, and what the source objects cost on top of it is
+// the API struct and every field no converter read.
 
 import (
 	"flag"
@@ -50,10 +51,12 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/bowei/kvec/pkg/kv"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/set"
 )
 
 var benchMemBudget = flag.Float64("repr.membudget", 4,
@@ -151,37 +154,63 @@ func TestBenchGenerators(t *testing.T) {
 	}
 }
 
-// The converters below drop Original as part of the conversion, so that both
-// the calibration batch and the measured one hold mirrors only. See the file
-// comment for why. The clearing is a single store per object and is inside the
-// timer, where it belongs.
-
 func BenchmarkNewNamespace(b *testing.B) {
+	// NewNamespace cannot fail; the error is what benchConvert's converters
+	// have in common, not something this one can produce.
 	benchConvert(b, benchNamespace, func(ns *corev1.Namespace) (Namespace, error) {
-		d := NewNamespace(ns)
-		d.Original = nil
-		return d, nil
+		return NewNamespace(ns), nil
 	})
 }
 
 func BenchmarkNewPod(b *testing.B) {
-	benchConvert(b, benchPod, func(pod *corev1.Pod) (Pod, error) {
-		d, err := NewPod(pod)
-		d.Original = nil
-		return d, err
-	})
+	benchConvert(b, benchPod, NewPod)
 }
 
 func BenchmarkNewNetworkPolicy(b *testing.B) {
-	benchConvert(b, benchPolicy, func(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
-		d, err := NewNetworkPolicy(np)
-		if err != nil {
-			return nil, err
-		}
-		d.Original = nil
-		return d, nil
-	})
+	benchConvert(b, benchPolicy, NewNetworkPolicy)
 }
+
+// BenchmarkRelevantLabels measures the work NewPod no longer does: compiling a
+// pod's labels into the kv.KV it is matched by. It is on the same path as
+// conversion even though it is not part of it — once per pod per resync, and
+// again for every pod when a policy changes the relevant-key set — so it is
+// measured per call rather than per batch, since unlike the converted objects
+// the result is held once per equivalence class and not once per pod.
+//
+// The relevant set is sized independently of the label count: the two are
+// unrelated in a cluster (a pod's labels are its own, the relevant set is every
+// key every policy names), and which of them is larger is what decides the side
+// RelevantLabels walks.
+func BenchmarkRelevantLabels(b *testing.B) {
+	for _, sc := range benchScales {
+		for _, nKeys := range []int{4, 64, 1024} {
+			b.Run(fmt.Sprintf("%s/keys=%d", sc.name, nKeys), func(b *testing.B) {
+				keys := set.New[string]()
+				for j := range nKeys {
+					keys.Insert(benchLabelKey(j))
+				}
+				// Rotating over a few label sets rather than generating one per
+				// iteration: generating costs more than projecting, and the
+				// rotation is still wide enough that the maps are not all in L1.
+				const rotation = 64
+				labels := make([]map[string]string, rotation)
+				for i := range labels {
+					labels[i] = benchLabels(sc.labels, i)
+				}
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := range b.N {
+					benchKVSink = RelevantLabels(labels[i%rotation], keys)
+				}
+			})
+		}
+	}
+}
+
+// benchKVSink keeps the projection reachable past the call, so that nothing of
+// RelevantLabels can be elided as dead.
+var benchKVSink *kv.KV
 
 // benchConvert runs conv over a batch of every size in benchCounts, at every
 // shape in benchScales.

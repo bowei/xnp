@@ -18,8 +18,6 @@ type NetworkPolicy struct {
 	PolicyTypes []networkingv1.PolicyType
 	Ingress     []Rule
 	Egress      []Rule
-
-	Original *networkingv1.NetworkPolicy
 }
 
 // Peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
@@ -87,12 +85,13 @@ func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
 		Namespace:   np.Namespace,
 		Name:        np.Name,
 		PodSelector: podSelector,
-		// Shares the original's backing array: the API objects repr mirrors
-		// are read-only to us, and Original keeps them alive regardless.
+		// Shares the original's backing array rather than cloning it. The API
+		// objects repr mirrors are read-only to us, and the array holds nothing
+		// but this policy's own policyTypes — at most two of them — so keeping
+		// it retains no more than the copy would.
 		PolicyTypes: np.Spec.PolicyTypes,
 		Ingress:     ingress,
 		Egress:      egress,
-		Original:    np,
 	}, nil
 }
 

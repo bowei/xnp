@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/set"
 )
 
 func TestNewLabels(t *testing.T) {
@@ -21,6 +22,74 @@ func TestNewLabels(t *testing.T) {
 	empty := labelsToKV(nil)
 	if empty.Len() != 0 {
 		t.Errorf("NewLabels(nil).Len() = %d, want 0", empty.Len())
+	}
+}
+
+func TestRelevantLabels(t *testing.T) {
+	labels := map[string]string{"app": "web", "tier": "prod", "pod-template-hash": "abc123"}
+
+	for _, tc := range []struct {
+		name   string
+		labels map[string]string
+		keys   []string
+		want   map[string]string
+	}{
+		{
+			name:   "keeps the relevant keys and drops the rest",
+			labels: labels,
+			keys:   []string{"app", "tier"},
+			want:   map[string]string{"app": "web", "tier": "prod"},
+		},
+		{
+			// The projection is what makes two objects equivalent, so a key no
+			// policy names has to leave no trace: these labels and a pod with
+			// only app=web must compile to the same KV.
+			name:   "an irrelevant key leaves nothing behind",
+			labels: labels,
+			keys:   []string{"app"},
+			want:   map[string]string{"app": "web"},
+		},
+		{
+			name:   "a relevant key the object does not carry stays absent",
+			labels: labels,
+			keys:   []string{"app", "env"},
+			want:   map[string]string{"app": "web"},
+		},
+		{
+			// Walked from the keys rather than from the labels, which is the
+			// other side of RelevantLabels.
+			name:   "more keys than labels",
+			labels: map[string]string{"app": "web"},
+			keys:   []string{"a", "b", "c", "d", "app", "e"},
+			want:   map[string]string{"app": "web"},
+		},
+		{
+			name:   "no relevant keys",
+			labels: labels,
+			keys:   nil,
+			want:   nil,
+		},
+		{
+			name:   "no labels",
+			labels: nil,
+			keys:   []string{"app"},
+			want:   nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RelevantLabels(tc.labels, set.New(tc.keys...))
+			if got.Len() != len(tc.want) {
+				t.Fatalf("Len() = %d, want %d", got.Len(), len(tc.want))
+			}
+			for k, want := range tc.want {
+				if v, ok := got.Get(k); !ok || v != want {
+					t.Errorf("Get(%q) = %q, %v, want %q, true", k, v, ok, want)
+				}
+			}
+			if want := labelsToKV(tc.want); !got.Equal(&want) {
+				t.Errorf("projection of %v onto %v is not the KV of %v", tc.labels, tc.keys, tc.want)
+			}
+		})
 	}
 }
 

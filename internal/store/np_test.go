@@ -75,15 +75,13 @@ func TestInit(t *testing.T) {
 	if got.Namespace != "ns1" || got.Name != "web" {
 		t.Errorf("Get(ns1, web) = %s/%s, want ns1/web", got.Namespace, got.Name)
 	}
-	if got.Original != web {
-		t.Errorf("Get(ns1, web).Original = %p, want %p", got.Original, web)
-	}
 
-	// Same name in two namespaces stays two policies.
+	// Same name in two namespaces stays two policies, each indexed under the
+	// namespace it came from.
 	if got, ok := nps.Get("ns2", "web"); !ok {
 		t.Error("Get(ns2, web) = !ok, want ok")
-	} else if got.Original != other {
-		t.Errorf("Get(ns2, web).Original = %p, want %p", got.Original, other)
+	} else if got.Namespace != "ns2" || got.Name != "web" {
+		t.Errorf("Get(ns2, web) = %s/%s, want ns2/web", got.Namespace, got.Name)
 	}
 
 	if _, ok := nps.Get("ns1", "nope"); ok {

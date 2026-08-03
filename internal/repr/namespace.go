@@ -9,16 +9,18 @@ import (
 type Namespace struct {
 	Name   string
 	Labels kv.KV
-
-	Original *corev1.Namespace
 }
 
 // NewNamespace converts ns into repr form, precompiling its labels for
 // matching against the namespaceSelectors of policy peers.
+//
+// Unlike a Pod's, these labels are compiled over the whole set rather than
+// projected onto the relevant keys: there is one namespace per thousands of
+// pods, so the projection would save little, and matching the full set is
+// always correct — the projection is an optimization, not a change of meaning.
 func NewNamespace(ns *corev1.Namespace) Namespace {
 	return Namespace{
-		Name:     ns.Name,
-		Labels:   labelsToKV(ns.Labels),
-		Original: ns,
+		Name:   ns.Name,
+		Labels: labelsToKV(ns.Labels),
 	}
 }

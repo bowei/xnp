@@ -1,6 +1,7 @@
 package repr
 
 import (
+	"maps"
 	"net/netip"
 	"slices"
 	"testing"
@@ -26,14 +27,14 @@ func TestNewPod(t *testing.T) {
 	if got.Namespace != "ns" || got.Name != "a" {
 		t.Errorf("Namespace/Name = %q/%q, want \"ns\"/\"a\"", got.Namespace, got.Name)
 	}
-	if v, ok := got.Labels.Get("app"); !ok || v != "web" {
-		t.Errorf("Labels[app] = %q, %v, want \"web\", true", v, ok)
+	if !maps.Equal(got.Labels, map[string]string{"app": "web"}) {
+		t.Errorf("Labels = %v, want map[app:web]", got.Labels)
 	}
 	if want := []netip.Addr{netip.MustParseAddr("10.0.0.1")}; !slices.Equal(got.IPs, want) {
 		t.Errorf("IPs = %v, want %v", got.IPs, want)
 	}
-	if got.Original != pod {
-		t.Errorf("Original = %p, want %p", got.Original, pod)
+	if got.Class() != nil {
+		t.Errorf("Class() = %v, want nil before the pod is linked to one", got.Class())
 	}
 }
 

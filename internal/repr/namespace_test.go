@@ -20,7 +20,4 @@ func TestNewNamespace(t *testing.T) {
 	if v, ok := got.Labels.Get("tier"); !ok || v != "prod" {
 		t.Errorf("Labels[tier] = %q, %v, want \"prod\", true", v, ok)
 	}
-	if got.Original != ns {
-		t.Errorf("Original = %p, want %p", got.Original, ns)
-	}
 }
