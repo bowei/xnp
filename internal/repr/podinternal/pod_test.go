@@ -1,4 +1,4 @@
-package repr
+package podinternal
 
 import (
 	"maps"

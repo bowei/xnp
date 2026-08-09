@@ -52,6 +52,10 @@ import (
 	"testing"
 
 	"github.com/bowei/kvec/pkg/kv"
+	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/repr/npinternal"
+	"github.com/bowei/xnp/internal/repr/nsinternal"
+	"github.com/bowei/xnp/internal/repr/podinternal"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,11 +146,11 @@ func TestBenchGenerators(t *testing.T) {
 	for _, sc := range benchScales {
 		t.Run(sc.name, func(t *testing.T) {
 			for _, i := range []int{0, 1, benchNamespaces + 1, 1<<16 + 1, benchCounts[len(benchCounts)-1].n - 1} {
-				NewNamespace(benchNamespace(sc, i))
-				if _, err := NewPod(benchPod(sc, i)); err != nil {
+				nsinternal.NewNamespace(benchNamespace(sc, i))
+				if _, err := podinternal.NewPod(benchPod(sc, i)); err != nil {
 					t.Errorf("NewPod(benchPod(%s, %d)): %v", sc.name, i, err)
 				}
-				if _, err := NewNetworkPolicy(benchPolicy(sc, i)); err != nil {
+				if _, err := npinternal.NewNetworkPolicy(benchPolicy(sc, i)); err != nil {
 					t.Errorf("NewNetworkPolicy(benchPolicy(%s, %d)): %v", sc.name, i, err)
 				}
 			}
@@ -157,17 +161,17 @@ func TestBenchGenerators(t *testing.T) {
 func BenchmarkNewNamespace(b *testing.B) {
 	// NewNamespace cannot fail; the error is what benchConvert's converters
 	// have in common, not something this one can produce.
-	benchConvert(b, benchNamespace, func(ns *corev1.Namespace) (Namespace, error) {
-		return NewNamespace(ns), nil
+	benchConvert(b, benchNamespace, func(ns *corev1.Namespace) (nsinternal.Namespace, error) {
+		return nsinternal.NewNamespace(ns), nil
 	})
 }
 
 func BenchmarkNewPod(b *testing.B) {
-	benchConvert(b, benchPod, NewPod)
+	benchConvert(b, benchPod, podinternal.NewPod)
 }
 
 func BenchmarkNewNetworkPolicy(b *testing.B) {
-	benchConvert(b, benchPolicy, NewNetworkPolicy)
+	benchConvert(b, benchPolicy, npinternal.NewNetworkPolicy)
 }
 
 // BenchmarkRelevantLabels measures the work NewPod no longer does: compiling a
@@ -201,7 +205,7 @@ func BenchmarkRelevantLabels(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for i := range b.N {
-					benchKVSink = RelevantLabels(labels[i%rotation], keys)
+					benchKVSink = convert.RelevantLabels(labels[i%rotation], keys)
 				}
 			})
 		}

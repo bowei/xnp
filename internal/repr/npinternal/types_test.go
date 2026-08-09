@@ -1,4 +1,4 @@
-package repr
+package npinternal
 
 import (
 	"net/netip"

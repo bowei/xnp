@@ -1,9 +1,10 @@
-package repr
+package npinternal
 
 import (
 	"net/netip"
 	"testing"
 
+	"github.com/bowei/xnp/internal/repr/convert"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,8 +46,8 @@ func TestNewNetworkPolicy(t *testing.T) {
 		t.Fatalf("PolicyTypes = %v, want 2 entries", got.PolicyTypes)
 	}
 
-	web := labelsToKV(map[string]string{"app": "web"})
-	db := labelsToKV(map[string]string{"app": "db"})
+	web := convert.LabelsToKV(map[string]string{"app": "web"})
+	db := convert.LabelsToKV(map[string]string{"app": "db"})
 	if !got.PodSelector.Match(&web) || got.PodSelector.Match(&db) {
 		t.Errorf("PodSelector matched (web, db) = (%v, %v), want (true, false)",
 			got.PodSelector.Match(&web), got.PodSelector.Match(&db))
@@ -61,7 +62,7 @@ func TestNewNetworkPolicy(t *testing.T) {
 		t.Fatalf("Peers = %d, want 3", len(rule.Peers))
 	}
 
-	client := labelsToKV(map[string]string{"role": "client"})
+	client := convert.LabelsToKV(map[string]string{"role": "client"})
 	if p := rule.Peers[0]; p.PodSelector == nil || !p.PodSelector.Match(&client) {
 		t.Errorf("Peers[0].PodSelector did not match role=client")
 	} else if p.NamespaceSelector != nil {
@@ -102,7 +103,7 @@ func TestNewNetworkPolicy_EmptySpec(t *testing.T) {
 		t.Fatalf("NewNetworkPolicy: %v", err)
 	}
 	// An empty podSelector selects every pod in the policy's namespace.
-	unlabeled := labelsToKV(nil)
+	unlabeled := convert.LabelsToKV(nil)
 	if got.PodSelector == nil || !got.PodSelector.Match(&unlabeled) {
 		t.Errorf("PodSelector did not match an unlabeled pod, want the empty selector to match everything")
 	}

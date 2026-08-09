@@ -5,20 +5,21 @@ package tuple
 
 import (
 	"fmt"
+	"net/netip"
 
+	"github.com/bowei/xnp/internal/eqc"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
-// Tuple is one compiled filtering rule to be enforced at Pod. Rules for a
-// given (Pod, Direction) form an ordered, first-match-wins chain: explicit
-// "allow" tuples followed by a single trailing wildcard tuple that carries
-// the default verdict (allow if the pod is not isolated for that direction,
-// deny if it is).
+// Tuple of rendered policy.
 type Tuple struct {
-	Pod  types.NamespacedName
-	Src  string // concrete IP or CIDR; "" means any (wildcard)
-	Dest string // concrete IP or CIDR; "" means any (wildcard)
+	// Source equivalence class. If nil, then source is a SourceCIDR.
+	Source     *eqc.Class
+	SourceCIDR netip.Prefix
+
+	// Dest equivalence class. If nil, then dest is a DestCIDR.
+	Dest     *eqc.Class
+	DestCIDR netip.Prefix
 
 	// Port/EndPort/Protocol are all zero-valued to mean "any" together;
 	// Protocol is only meaningful when Port is set.
@@ -28,6 +29,49 @@ type Tuple struct {
 	Protocol  Protocol
 	Direction Direction
 	Verdict   Verdict
+}
+
+// String renders the Tuple on one line, for logs and test failure messages.
+// The form is
+//
+//	ingress allow default/eqc:1f0c… -> 10.0.0.0/8 tcp:80-443
+//
+// where either endpoint is a class, a CIDR, or "any" when neither is set — the
+// trailing wildcard of a chain, which carries the default verdict.
+func (tup *Tuple) String() string {
+	return fmt.Sprintf("%s %s %s -> %s %s",
+		tup.Direction, tup.Verdict,
+		endpoint(tup.Source, tup.SourceCIDR),
+		endpoint(tup.Dest, tup.DestCIDR),
+		tup.portString())
+}
+
+func endpoint(class *eqc.Class, cidr netip.Prefix) string {
+	switch {
+	case class != nil:
+		// A Class has no name of its own, and its members are unordered, so
+		// namespace plus label hash is the only identity that is stable across
+		// renders. Collisions are possible but this is a debugging string.
+		return fmt.Sprintf("%s/eqc:%016x", class.Namespace(), class.KV().Hash())
+	case cidr.IsValid():
+		return cidr.String()
+	default:
+		return "any"
+	}
+}
+
+// portString renders the port range together with the protocol, since Protocol
+// is only meaningful when Port is set: an unset Port is "any" traffic, not "any
+// port of tcp".
+func (tup *Tuple) portString() string {
+	switch {
+	case tup.Port == nil:
+		return "any"
+	case tup.EndPort == nil:
+		return fmt.Sprintf("%s:%d", tup.Protocol, *tup.Port)
+	default:
+		return fmt.Sprintf("%s:%d-%d", tup.Protocol, *tup.Port, *tup.EndPort)
+	}
 }
 
 // Protocol is corev1.Protocol packed into a byte instead of a string; the

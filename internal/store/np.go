@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/bowei/xnp/internal/repr"
+	"github.com/bowei/xnp/internal/repr/npinternal"
 	v1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/set"
@@ -19,7 +19,7 @@ type NetworkPolicies struct {
 	// per namespace, and a namespace's policies are the unit it works on, so
 	// the namespace level is indexed rather than reached by filtering a flat
 	// list.
-	byNs map[string]map[string]*repr.NetworkPolicy
+	byNs map[string]map[string]*npinternal.NetworkPolicy
 
 	// relevantKeys are all of the label keys that are references in
 	// NetworkPolicies.
@@ -28,7 +28,7 @@ type NetworkPolicies struct {
 
 func NewNetworkPolicies() *NetworkPolicies {
 	return &NetworkPolicies{
-		byNs:         map[string]map[string]*repr.NetworkPolicy{},
+		byNs:         map[string]map[string]*npinternal.NetworkPolicy{},
 		relevantKeys: set.New[string](),
 	}
 }
@@ -58,13 +58,13 @@ func (nps *NetworkPolicies) RelevantKeys() set.Set[string] { return nps.relevant
 func (nps *NetworkPolicies) Init(
 	policies func(yield func(*v1.NetworkPolicy) bool),
 ) error {
-	byNs := map[string]map[string]*repr.NetworkPolicy{}
+	byNs := map[string]map[string]*npinternal.NetworkPolicy{}
 	relevantKeys := set.New[string]()
 
 	var err error
 	for np := range policies {
-		var converted *repr.NetworkPolicy
-		converted, err = repr.NewNetworkPolicy(np)
+		var converted *npinternal.NetworkPolicy
+		converted, err = npinternal.NewNetworkPolicy(np)
 		if err != nil {
 			// The iterator is stopped rather than returned from directly: a
 			// range-over-func body cannot return for its caller, and running
@@ -75,7 +75,7 @@ func (nps *NetworkPolicies) Init(
 
 		inNs, ok := byNs[converted.Namespace]
 		if !ok {
-			inNs = map[string]*repr.NetworkPolicy{}
+			inNs = map[string]*npinternal.NetworkPolicy{}
 			byNs[converted.Namespace] = inNs
 		}
 		inNs[converted.Name] = converted
@@ -92,7 +92,7 @@ func (nps *NetworkPolicies) Init(
 }
 
 // Get returns the named policy, and whether it is stored at all.
-func (nps *NetworkPolicies) Get(ns, name string) (*repr.NetworkPolicy, bool) {
+func (nps *NetworkPolicies) Get(ns, name string) (*npinternal.NetworkPolicy, bool) {
 	np, ok := nps.byNs[ns][name]
 	return np, ok
 }
@@ -108,8 +108,8 @@ func (nps *NetworkPolicies) Len() int {
 
 // Range returns an iterator over the policies in ns. The order is unspecified.
 // The store must not be modified during iteration.
-func (nps *NetworkPolicies) Range(ns string) func(yield func(*repr.NetworkPolicy) bool) {
-	return func(yield func(*repr.NetworkPolicy) bool) {
+func (nps *NetworkPolicies) Range(ns string) func(yield func(*npinternal.NetworkPolicy) bool) {
+	return func(yield func(*npinternal.NetworkPolicy) bool) {
 		for _, np := range nps.byNs[ns] {
 			if !yield(np) {
 				return
@@ -121,8 +121,8 @@ func (nps *NetworkPolicies) Range(ns string) func(yield func(*repr.NetworkPolicy
 // All returns an iterator over every stored policy, in every namespace. The
 // order is unspecified; a policy carries its own Namespace. The store must not
 // be modified during iteration.
-func (nps *NetworkPolicies) All() func(yield func(*repr.NetworkPolicy) bool) {
-	return func(yield func(*repr.NetworkPolicy) bool) {
+func (nps *NetworkPolicies) All() func(yield func(*npinternal.NetworkPolicy) bool) {
+	return func(yield func(*npinternal.NetworkPolicy) bool) {
 		for _, inNs := range nps.byNs {
 			for _, np := range inNs {
 				if !yield(np) {

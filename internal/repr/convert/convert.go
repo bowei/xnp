@@ -1,4 +1,4 @@
-package repr
+package convert
 
 import (
 	"fmt"
@@ -10,11 +10,11 @@ import (
 	"k8s.io/utils/set"
 )
 
-// labelsToKV converts a Kubernetes label map into the matching-optimized form
+// LabelsToKV converts a Kubernetes label map into the matching-optimized form
 // repr stores it in. The result is immutable and safe to copy by value and to
 // match against from many goroutines.
-func labelsToKV(labels map[string]string) kv.KV {
-	return *kv.New(maps.All(labels), len(labels))
+func LabelsToKV(labels map[string]string) kv.KV {
+	return *kv.NewKV(maps.All(labels), len(labels))
 }
 
 // RelevantLabels compiles the pairs of labels whose key is in keys into the
@@ -38,7 +38,7 @@ func RelevantLabels(labels map[string]string, keys set.Set[string]) *kv.KV {
 	// proportional to it. This runs once per object per resync and again for
 	// every object when the relevant set changes, so the difference is real.
 	n := min(len(labels), len(keys))
-	return kv.New(func(yield func(k, v string) bool) {
+	return kv.NewKV(func(yield func(k, v string) bool) {
 		if len(labels) <= len(keys) {
 			for k, v := range labels {
 				if keys.Has(k) && !yield(k, v) {
@@ -55,7 +55,7 @@ func RelevantLabels(labels map[string]string, keys set.Set[string]) *kv.KV {
 	}, n)
 }
 
-// selectorToPred compiles sel into the matching-optimized form repr stores
+// SelectorToPred compiles sel into the matching-optimized form repr stores
 // selectors in. The result is immutable and safe to match against from many
 // goroutines.
 //
@@ -64,7 +64,7 @@ func RelevantLabels(labels map[string]string, keys set.Set[string]) *kv.KV {
 // as an empty one ("match everything"), and only the caller knows what the
 // omission means for the field it is reading, so the distinction is preserved
 // rather than resolved here.
-func selectorToPred(sel *metav1.LabelSelector) (*pred.Predicate, error) {
+func SelectorToPred(sel *metav1.LabelSelector) (*pred.Predicate, error) {
 	if sel == nil {
 		return nil, nil
 	}

@@ -1,9 +1,10 @@
-package repr
+package npinternal
 
 import (
 	"fmt"
 
 	"github.com/bowei/kvec/pkg/pred"
+	"github.com/bowei/xnp/internal/repr/convert"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -58,7 +59,7 @@ type Port struct {
 // policy that would render wrongly is rejected even if no pod ever selects
 // it, rather than at the point some renderer happens to evaluate the rule.
 func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
-	podSelector, err := selectorToPred(&np.Spec.PodSelector)
+	podSelector, err := convert.SelectorToPred(&np.Spec.PodSelector)
 	if err != nil {
 		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
 	}
@@ -116,11 +117,11 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 	}
 	out := make([]Peer, len(peers))
 	for i, p := range peers {
-		podSelector, err := selectorToPred(p.PodSelector)
+		podSelector, err := convert.SelectorToPred(p.PodSelector)
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: podSelector: %w", i, err)
 		}
-		nsSelector, err := selectorToPred(p.NamespaceSelector)
+		nsSelector, err := convert.SelectorToPred(p.NamespaceSelector)
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: namespaceSelector: %w", i, err)
 		}

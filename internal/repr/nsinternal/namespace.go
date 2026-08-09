@@ -1,7 +1,8 @@
-package repr
+package nsinternal
 
 import (
 	"github.com/bowei/kvec/pkg/kv"
+	"github.com/bowei/xnp/internal/repr/convert"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -21,6 +22,6 @@ type Namespace struct {
 func NewNamespace(ns *corev1.Namespace) Namespace {
 	return Namespace{
 		Name:   ns.Name,
-		Labels: labelsToKV(ns.Labels),
+		Labels: convert.LabelsToKV(ns.Labels),
 	}
 }

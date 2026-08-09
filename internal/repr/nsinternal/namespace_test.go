@@ -1,4 +1,4 @@
-package repr
+package nsinternal
 
 import (
 	"testing"

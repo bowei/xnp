@@ -1,6 +1,8 @@
 package eqc
 
-import "github.com/bowei/kvec/pkg/kv"
+import (
+	"github.com/bowei/kvec/pkg/kv"
+)
 
 // Classes maintains equivalence classes of labeled objects, grouped by
 // namespace. Objects in the same namespace carrying equal key/value sets share
@@ -28,19 +30,31 @@ type perNs struct {
 
 // Class of objects that share the same KV labels.
 type Class struct {
-	kv *kv.KV
 	ns string
+	kv *kv.KV
+	kf *keyFilter
 
-	// objs associated with this EqClass. key is the name
-	objs map[string]struct{}
+	// objs associated with this EqClass. key is the name, value is the object's
+	// full set of label keys. The keys are kept rather than recomputed because
+	// eviction has to retract exactly what the object contributed to kf, and by
+	// then the only thing known about the object is its name — Delete is given
+	// nothing else, and an Update carries the object's new keys, not its old
+	// ones.
+	objs map[string][]string
 }
+
+// Namespace the Class belongs to.
+func (c *Class) Namespace() string { return c.ns }
 
 // KV is the key/value set shared by every object in the Class. It must not be
 // mutated.
 func (c *Class) KV() *kv.KV { return c.kv }
 
-// Namespace the Class belongs to.
-func (c *Class) Namespace() string { return c.ns }
+// HasKey returns true if there are objects in this Class with key. This is the
+// object's full key set (Entry.AllKeys), not the keys of KV: the objects of a
+// class agree on the projected labels and on nothing else, so a key outside the
+// projection may be carried by some of them and not others.
+func (c *Class) HasKey(key string) bool { return c.kf.has(key) }
 
 // Len is the number of objects currently in the Class.
 func (c *Class) Len() int { return len(c.objs) }
@@ -74,6 +88,23 @@ func (cl *Classes) Get(ns, name string) (*Class, bool) {
 	return cls, ok
 }
 
+type Entry struct {
+	Namespace string
+	Name      string
+	KV        *kv.KV
+
+	// AllKeys is the object's full set of label keys, which is more than the
+	// keys of KV: KV is the projection onto the keys policy currently selects
+	// on, and HasKey exists to answer what would happen if that set grew. Keys
+	// must be unique — the filter behind HasKey counts them, and a repeat would
+	// leave a key in the filter after its object left.
+	//
+	// The slice is retained rather than copied, and must not be mutated
+	// afterwards. Leaving it nil is allowed and reads back as an object with no
+	// keys at all.
+	AllKeys []string
+}
+
 // Add the named object with the given key/value set, creating the equivalence
 // class for kv if this is the first object to carry it. Adding a name that is
 // already tracked in ns behaves as an Update of that object.
@@ -81,8 +112,8 @@ func (cl *Classes) Get(ns, name string) (*Class, bool) {
 // The Class now holding the object is returned: a caller that keeps its own
 // record of the object (store.Pods does) has to link it to the class, and
 // looking the class back up would repeat work set has already done.
-func (cl *Classes) Add(ns, name string, kv *kv.KV) *Class {
-	return cl.set(ns, name, kv)
+func (cl *Classes) Add(e Entry) *Class {
+	return cl.set(e)
 }
 
 // Update the key/value set of the named object, moving it to the class for kv
@@ -90,16 +121,16 @@ func (cl *Classes) Add(ns, name string, kv *kv.KV) *Class {
 // leaves it empty. An object that is not currently tracked is added, so a
 // missed Add does not lose the object. The Class now holding the object is
 // returned, which for an Update may be a different one than before.
-func (cl *Classes) Update(ns, name string, kv *kv.KV) *Class {
-	return cl.set(ns, name, kv)
+func (cl *Classes) Update(e Entry) *Class {
+	return cl.set(e)
 }
 
 // set places the named object in the class for kv, evicting it from whatever
 // class it is in now. Add and Update are the same operation approached from
 // either side: both have to handle the object being absent (nothing to evict)
 // and the object already sitting in the right class (nothing to do).
-func (cl *Classes) set(ns, name string, kv *kv.KV) *Class {
-	pns, ok := cl.byNs[ns]
+func (cl *Classes) set(e Entry) *Class {
+	pns, ok := cl.byNs[e.Namespace]
 	if !ok {
 		pns = &perNs{
 			partitions: map[uint64][]*Class{},
@@ -108,21 +139,31 @@ func (cl *Classes) set(ns, name string, kv *kv.KV) *Class {
 		if cl.byNs == nil {
 			cl.byNs = map[string]*perNs{}
 		}
-		cl.byNs[ns] = pns
+		cl.byNs[e.Namespace] = pns
 	}
 
-	if cur, ok := pns.byName[name]; ok {
-		if cur.kv.Equal(kv) {
+	if cur, ok := pns.byName[e.Name]; ok {
+		if cur.kv.Equal(e.KV) {
 			// Already in the right class: the common Update case, where an
-			// object changed in some way that did not touch its labels.
+			// object changed in some way that did not touch its labels. Its
+			// keys still have to be replayed, since a label on a key no policy
+			// selects on leaves the projection — and so the class — untouched
+			// while changing what HasKey has to answer. Added before the old
+			// keys are retracted so that a key the object keeps never drops to
+			// a count of zero on the way through.
+			cur.kf.add(e.AllKeys)
+			cur.kf.remove(cur.objs[e.Name])
+			cur.objs[e.Name] = e.AllKeys
 			return cur
 		}
-		pns.evict(name, cur)
+		pns.evict(e.Name, cur)
 	}
 
-	cls := pns.classFor(ns, kv)
-	cls.objs[name] = struct{}{}
-	pns.byName[name] = cls
+	cls := pns.classFor(e.Namespace, e.KV)
+	cls.objs[e.Name] = e.AllKeys
+	cls.kf.add(e.AllKeys)
+	pns.byName[e.Name] = cls
+
 	return cls
 }
 
@@ -193,7 +234,8 @@ func (pns *perNs) classFor(ns string, labels *kv.KV) *Class {
 	cls := &Class{
 		kv:   labels,
 		ns:   ns,
-		objs: map[string]struct{}{},
+		kf:   newKeyFilter(),
+		objs: map[string][]string{},
 	}
 	pns.partitions[hash] = append(pns.partitions[hash], cls)
 	return cls
@@ -203,6 +245,11 @@ func (pns *perNs) classFor(ns string, labels *kv.KV) *Class {
 // objects. Emptied classes cannot be left in place: they would keep the
 // namespace alive and make Range hand out classes with nothing in them.
 func (pns *perNs) evict(name string, cls *Class) {
+	// The object takes its keys back out of the filter with it. Only the keys
+	// it alone carried actually leave: the filter counts them, so a key another
+	// object in the class also carries stays.
+	cls.kf.remove(cls.objs[name])
+
 	delete(cls.objs, name)
 	delete(pns.byName, name)
 	if len(cls.objs) > 0 {

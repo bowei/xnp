@@ -1,8 +1,9 @@
 package store
 
 import (
-	"github.com/bowei/xnp/internal/repr"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/bowei/xnp/internal/repr/nsinternal"
 )
 
 // Namespaces is the controller's view of the cluster's Namespaces, converted to
@@ -15,11 +16,11 @@ import (
 //
 // Namespaces is not safe for concurrent use.
 type Namespaces struct {
-	byName map[string]*repr.Namespace
+	byName map[string]*nsinternal.Namespace
 }
 
 func NewNamespaces() *Namespaces {
-	return &Namespaces{byName: map[string]*repr.Namespace{}}
+	return &Namespaces{byName: map[string]*nsinternal.Namespace{}}
 }
 
 // Init is the startup path (doc/workflow.tex §Startup). It replaces whatever
@@ -28,9 +29,9 @@ func NewNamespaces() *Namespaces {
 func (nss *Namespaces) Init(
 	nsSeq func(yield func(*corev1.Namespace) bool),
 ) error {
-	byName := map[string]*repr.Namespace{}
+	byName := map[string]*nsinternal.Namespace{}
 	for ns := range nsSeq {
-		converted := repr.NewNamespace(ns)
+		converted := nsinternal.NewNamespace(ns)
 		byName[converted.Name] = &converted
 	}
 
@@ -39,7 +40,7 @@ func (nss *Namespaces) Init(
 }
 
 // Get returns the named namespace, and whether it is stored at all.
-func (nss *Namespaces) Get(name string) (*repr.Namespace, bool) {
+func (nss *Namespaces) Get(name string) (*nsinternal.Namespace, bool) {
 	ns, ok := nss.byName[name]
 	return ns, ok
 }
@@ -49,8 +50,8 @@ func (nss *Namespaces) Len() int { return len(nss.byName) }
 
 // All returns an iterator over every stored namespace. The order is
 // unspecified. The store must not be modified during iteration.
-func (nss *Namespaces) All() func(yield func(*repr.Namespace) bool) {
-	return func(yield func(*repr.Namespace) bool) {
+func (nss *Namespaces) All() func(yield func(*nsinternal.Namespace) bool) {
+	return func(yield func(*nsinternal.Namespace) bool) {
 		for _, ns := range nss.byName {
 			if !yield(ns) {
 				return
