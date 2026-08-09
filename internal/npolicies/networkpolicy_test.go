@@ -1,4 +1,4 @@
-package npinternal
+package npolicies
 
 import (
 	"net/netip"
@@ -35,7 +35,7 @@ func TestNewNetworkPolicy(t *testing.T) {
 		},
 	}
 
-	got, err := NewNetworkPolicy(np)
+	got, err := newEntry(np)
 	if err != nil {
 		t.Fatalf("NewNetworkPolicy: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestNewNetworkPolicy(t *testing.T) {
 
 func TestNewNetworkPolicy_EmptySpec(t *testing.T) {
 	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "np1"}}
-	got, err := NewNetworkPolicy(np)
+	got, err := newEntry(np)
 	if err != nil {
 		t.Fatalf("NewNetworkPolicy: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestNewNetworkPolicy_Errors(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "np1"},
 				Spec:       tc.spec,
 			}
-			if _, err := NewNetworkPolicy(np); err == nil {
+			if _, err := newEntry(np); err == nil {
 				t.Fatalf("NewNetworkPolicy: want error, got nil")
 			}
 		})

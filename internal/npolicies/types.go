@@ -1,4 +1,4 @@
-package npinternal
+package npolicies
 
 import (
 	"fmt"

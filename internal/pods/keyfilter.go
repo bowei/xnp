@@ -1,4 +1,4 @@
-package eqc
+package pods
 
 import (
 	"github.com/bowei/kvec/pkg/kv"

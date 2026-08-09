@@ -14,6 +14,11 @@ type entry struct {
 	Labels    map[string]string
 	IPs       []netip.Addr
 
+	// Node is the pod's assignment, empty until the scheduler makes one. It is
+	// what the nodes index is keyed by: the rules a node is shipped are the
+	// rules for the pods running on it.
+	Node string
+
 	EQC *kv.KV
 }
 
@@ -27,6 +32,7 @@ func podToEntry(pod *corev1.Pod) (*entry, error) {
 		Name:      pod.Name,
 		Labels:    pod.Labels,
 		IPs:       ips,
+		Node:      pod.Spec.NodeName,
 	}, nil
 }
 

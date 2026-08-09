@@ -3,6 +3,7 @@ package pods
 import (
 	"fmt"
 
+	"github.com/bowei/kvec/pkg/kv"
 	"github.com/bowei/xnp/internal/repr/convert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/set"
@@ -20,8 +21,8 @@ func (pods *Pods) Init(
 	// Convert all Pods
 	var err error
 	for pod := range podSeq {
-		var entry *entry
-		entry, err = podToEntry(pod)
+		var e *entry
+		e, err = podToEntry(pod)
 		if err != nil {
 			// The iterator is stopped rather than returned from directly: a
 			// range-over-func body cannot return for its caller, and running it
@@ -33,12 +34,42 @@ func (pods *Pods) Init(
 			break
 		}
 
-		// ns -> name -> Pod.
-		pods.pods[pod.Namespace][pod.Name] = entry
+		// Equivalence class. The entry carries it so that a later change to the
+		// relevant labels can find the class the entry is leaving; recomputing
+		// it from the old label set is not possible once that set is gone.
+		e.EQC = convert.RelevantLabels(pod.Labels, pods.rlabels)
 
-		// Equivalence class. ns -> eqc -> name -> Pod.
-		eqcKV := convert.RelevantLabels(pod.Labels, pods.rlabels)
-		pods.eqc[pod.Namespace][eqcKV.Comparable()][pod.Name] = entry
+		// ns -> name -> Pod.
+		inNs, ok := pods.pods[pod.Namespace]
+		if !ok {
+			inNs = map[string]*entry{}
+			pods.pods[pod.Namespace] = inNs
+		}
+		inNs[pod.Name] = e
+
+		// ns -> eqc -> name -> Pod.
+		eqcKey := e.EQC.Comparable()
+		byEQC, ok := pods.eqc[pod.Namespace]
+		if !ok {
+			byEQC = map[kv.MapKey]map[string]*entry{}
+			pods.eqc[pod.Namespace] = byEQC
+		}
+		inEQC, ok := byEQC[eqcKey]
+		if !ok {
+			inEQC = map[string]*entry{}
+			byEQC[eqcKey] = inEQC
+		}
+		inEQC[pod.Name] = e
+
+		// node -> [eqc].
+		if e.Node != "" {
+			onNode, ok := pods.nodes[e.Node]
+			if !ok {
+				onNode = set.New[kv.MapKey]()
+				pods.nodes[e.Node] = onNode
+			}
+			onNode.Insert(eqcKey)
+		}
 	}
 
 	if err != nil {

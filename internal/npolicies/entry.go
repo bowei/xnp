@@ -1,4 +1,4 @@
-package npinternal
+package npolicies
 
 import (
 	"fmt"
@@ -10,11 +10,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// NetworkPolicy is the memory-efficient mirror of a
-// networkingv1.NetworkPolicy.
-type NetworkPolicy struct {
-	Namespace   string
-	Name        string
+// entry is the memory-efficient mirror of a
+// networkingv1.entry.
+type entry struct {
+	Namespace string
+	Name      string
+
 	PodSelector *pred.Predicate
 	PolicyTypes []networkingv1.PolicyType
 	Ingress     []Rule
@@ -50,7 +51,7 @@ type Port struct {
 	EndPort  *int32
 }
 
-// NewNetworkPolicy converts np into repr form, compiling its selectors for
+// newEntry converts np into repr form, compiling its selectors for
 // matching.
 //
 // Conversion fails rather than dropping or approximating anything it cannot
@@ -58,7 +59,7 @@ type Port struct {
 // or a named (string) port. Since this runs once per policy up front, a
 // policy that would render wrongly is rejected even if no pod ever selects
 // it, rather than at the point some renderer happens to evaluate the rule.
-func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
+func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 	podSelector, err := convert.SelectorToPred(&np.Spec.PodSelector)
 	if err != nil {
 		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
@@ -82,7 +83,7 @@ func NewNetworkPolicy(np *networkingv1.NetworkPolicy) (*NetworkPolicy, error) {
 		egress[i] = rule
 	}
 
-	return &NetworkPolicy{
+	return &entry{
 		Namespace:   np.Namespace,
 		Name:        np.Name,
 		PodSelector: podSelector,
