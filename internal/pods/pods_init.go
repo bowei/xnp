@@ -5,12 +5,13 @@ import (
 
 	"github.com/bowei/kvec/pkg/kv"
 	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/set"
 )
 
 func (pods *Pods) Init(
-	relevantLabels set.Set[string],
+	relevantLabels *rlabels.RLabels,
 	podSeq func(yield func(*corev1.Pod) bool),
 ) error {
 	pods.lock.Lock()
@@ -34,10 +35,11 @@ func (pods *Pods) Init(
 			break
 		}
 
-		// Equivalence class. The entry carries it so that a later change to the
+		// Equivalence class, projected onto the keys relevant in the pod's own
+		// namespace. The entry carries it so that a later change to the
 		// relevant labels can find the class the entry is leaving; recomputing
 		// it from the old label set is not possible once that set is gone.
-		e.EQC = convert.RelevantLabels(pod.Labels, pods.rlabels)
+		e.EQC = convert.RelevantLabels(pod.Labels, pods.rlabels.Labels(pod.Namespace))
 
 		// ns -> name -> Pod.
 		inNs, ok := pods.pods[pod.Namespace]

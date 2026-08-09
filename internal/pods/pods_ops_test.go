@@ -6,6 +6,7 @@ import (
 
 	"github.com/bowei/kvec/pkg/kv"
 	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/set"
@@ -28,12 +29,23 @@ func podSeq(pods ...*corev1.Pod) func(yield func(*corev1.Pod) bool) {
 	}
 }
 
-// classKey is the equivalence class labels projects onto under rlabels, in the
+// classKey is the equivalence class labels projects onto under keys, in the
 // form the eqc index is keyed by. The test builds its expectations the same way
 // the store does rather than reaching for the entries' own EQC, so a wrong
 // projection shows up as a missing class and not as agreement with itself.
-func classKey(labels map[string]string, rlabels ...string) kv.MapKey {
-	return convert.RelevantLabels(labels, set.New(rlabels...)).Comparable()
+func classKey(labels map[string]string, keys ...string) kv.MapKey {
+	return convert.RelevantLabels(labels, set.New(keys...)).Comparable()
+}
+
+// testRLabels builds the relevant labels of a cluster from ns -> keys, the
+// shape the policy store hands them over in. A namespace with no keys is left
+// out, as the Builder leaves it out.
+func testRLabels(perNs map[string][]string) *rlabels.RLabels {
+	var b rlabels.Builder
+	for ns, keys := range perNs {
+		b.Merge(ns, set.New(keys...))
+	}
+	return b.Build()
 }
 
 // classes is the eqc index of ns flattened to sorted member names per class.
@@ -74,10 +86,10 @@ var (
 	unlabeled = map[string]string{"unrelated": "x"}
 )
 
-func initPods(t *testing.T, rlabels ...string) *Pods {
+func initPods(t *testing.T, perNs map[string][]string) *Pods {
 	t.Helper()
 	pods := NewPods()
-	err := pods.Init(set.New(rlabels...), podSeq(
+	err := pods.Init(testRLabels(perNs), podSeq(
 		testPod("ns1", "web-1", "node-a", webFE),
 		testPod("ns1", "web-2", "node-a", webBE),
 		testPod("ns1", "db-1", "node-b", db),
@@ -90,7 +102,7 @@ func initPods(t *testing.T, rlabels ...string) *Pods {
 }
 
 func TestUpdateRLabelsSplitsClasses(t *testing.T) {
-	pods := initPods(t, "app")
+	pods := initPods(t, map[string][]string{"ns1": {"app"}})
 
 	// "app" alone cannot tell the two web pods apart.
 	want := map[kv.MapKey][]string{
@@ -101,7 +113,7 @@ func TestUpdateRLabelsSplitsClasses(t *testing.T) {
 		t.Errorf("classes(ns1) = %v, want %v", got, want)
 	}
 
-	pods.UpdateRLabels(set.New("app", "tier"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "tier"}}))
 
 	// "tier" becoming relevant splits them, and leaves db-1 — which carries no
 	// tier — in the class it was already in.
@@ -124,8 +136,8 @@ func TestUpdateRLabelsSplitsClasses(t *testing.T) {
 }
 
 func TestUpdateRLabelsMergesClasses(t *testing.T) {
-	pods := initPods(t, "app", "tier")
-	pods.UpdateRLabels(set.New("app"))
+	pods := initPods(t, map[string][]string{"ns1": {"app", "tier"}})
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app"}}))
 
 	// Dropping "tier" collapses the two web classes back into one, and the
 	// class each pod left must not be lingering empty behind it. classes()
@@ -139,9 +151,63 @@ func TestUpdateRLabelsMergesClasses(t *testing.T) {
 	}
 }
 
+// Relevant labels are per namespace, so a key becoming relevant in one
+// namespace says nothing about the pods of another, even when they carry the
+// very same labels.
+func TestUpdateRLabelsScopedToNamespace(t *testing.T) {
+	pods := NewPods()
+	if err := pods.Init(testRLabels(map[string][]string{"ns1": {"app"}}), podSeq(
+		testPod("ns1", "web-1", "node-a", webFE),
+		testPod("ns2", "web-2", "node-a", webFE),
+	)); err != nil {
+		t.Fatalf("Init() = %v, want nil", err)
+	}
+
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "tier"}}))
+
+	if got, want := classes(t, pods, "ns1"), map[kv.MapKey][]string{
+		classKey(webFE, "app", "tier"): {"web-1"},
+	}; !mapsEqual(got, want) {
+		t.Errorf("classes(ns1) = %v, want %v", got, want)
+	}
+	// No policy names a key in ns2, so its pod is still in the empty class
+	// rather than in the one the identically labeled ns1 pod moved to.
+	if got, want := classes(t, pods, "ns2"), map[kv.MapKey][]string{
+		classKey(webFE): {"web-2"},
+	}; !mapsEqual(got, want) {
+		t.Errorf("classes(ns2) = %v, want %v", got, want)
+	}
+
+	pods.UpdateRLabels(testRLabels(map[string][]string{
+		"ns1": {"app", "tier"},
+		"ns2": {"app"},
+	}))
+
+	// ns2 gaining its first relevant key regroups it, and leaves ns1 — which
+	// the update does not name a different set for — where it was.
+	if got, want := classes(t, pods, "ns2"), map[kv.MapKey][]string{
+		classKey(webFE, "app"): {"web-2"},
+	}; !mapsEqual(got, want) {
+		t.Errorf("classes(ns2) after ns2 becomes relevant = %v, want %v", got, want)
+	}
+	if got, want := classes(t, pods, "ns1"), map[kv.MapKey][]string{
+		classKey(webFE, "app", "tier"): {"web-1"},
+	}; !mapsEqual(got, want) {
+		t.Errorf("classes(ns1) after ns2 becomes relevant = %v, want %v", got, want)
+	}
+	// Both classes live on node-a, and they are distinct: the node index is not
+	// namespace qualified, so the two projections of the same labels are two
+	// entries there.
+	if got, want := nodeClasses(pods), map[string][]kv.MapKey{
+		"node-a": sorted(classKey(webFE, "app", "tier"), classKey(webFE, "app")),
+	}; !mapsEqual(got, want) {
+		t.Errorf("nodes = %v, want %v", got, want)
+	}
+}
+
 func TestUpdateRLabelsEmptyRelevantSet(t *testing.T) {
-	pods := initPods(t, "app", "tier")
-	pods.UpdateRLabels(set.New[string]())
+	pods := initPods(t, map[string][]string{"ns1": {"app", "tier"}})
+	pods.UpdateRLabels(testRLabels(nil))
 
 	// With nothing relevant every pod in a namespace projects onto the empty
 	// set, so a namespace is one class.
@@ -157,51 +223,53 @@ func TestUpdateRLabelsEmptyRelevantSet(t *testing.T) {
 }
 
 func TestUpdateRLabelsNoChange(t *testing.T) {
-	pods := initPods(t, "app")
+	pods := initPods(t, map[string][]string{"ns1": {"app"}})
 	before := classes(t, pods, "ns1")
 
 	// A key set that differs by an irrelevant key, then one that does not
 	// differ at all: neither may move a pod.
-	pods.UpdateRLabels(set.New("app", "nobody-carries-this"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "nobody-carries-this"}}))
 	if got := classes(t, pods, "ns1"); !mapsEqual(got, before) {
 		t.Errorf("classes(ns1) after unused key = %v, want %v", got, before)
 	}
-	pods.UpdateRLabels(set.New("app", "nobody-carries-this"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "nobody-carries-this"}}))
 	if got := classes(t, pods, "ns1"); !mapsEqual(got, before) {
 		t.Errorf("classes(ns1) after no-op = %v, want %v", got, before)
 	}
 }
 
 func TestUpdateRLabelsRebuildsNodes(t *testing.T) {
-	pods := initPods(t, "app")
+	pods := initPods(t, map[string][]string{"ns1": {"app"}})
 
+	// node-b runs pods from both namespaces: db-1 from ns1 and idle-1 from ns2,
+	// which has no relevant keys at all and so sits in the empty class.
 	want := map[string][]kv.MapKey{
 		"node-a": {classKey(webFE, "app")},
-		"node-b": sorted(classKey(db, "app"), classKey(unlabeled, "app")),
+		"node-b": sorted(classKey(db, "app"), classKey(unlabeled)),
 	}
 	if got := nodeClasses(pods); !mapsEqual(got, want) {
 		t.Errorf("nodes = %v, want %v", got, want)
 	}
 
-	pods.UpdateRLabels(set.New("app", "tier"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "tier"}}))
 
 	// node-a holds both web pods, so the split it caused is visible there as
 	// two classes where there was one. node-b is untouched by "tier".
 	want = map[string][]kv.MapKey{
 		"node-a": sorted(classKey(webFE, "app", "tier"), classKey(webBE, "app", "tier")),
-		"node-b": sorted(classKey(db, "app", "tier"), classKey(unlabeled, "app", "tier")),
+		"node-b": sorted(classKey(db, "app", "tier"), classKey(unlabeled)),
 	}
 	if got := nodeClasses(pods); !mapsEqual(got, want) {
 		t.Errorf("nodes after split = %v, want %v", got, want)
 	}
 
-	pods.UpdateRLabels(set.New("app"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app"}}))
 
 	// Merging back must drop the classes that no longer exist rather than
 	// leaving node-a holding a key no pod on it projects onto.
 	want = map[string][]kv.MapKey{
 		"node-a": {classKey(webFE, "app")},
-		"node-b": sorted(classKey(db, "app"), classKey(unlabeled, "app")),
+		"node-b": sorted(classKey(db, "app"), classKey(unlabeled)),
 	}
 	if got := nodeClasses(pods); !mapsEqual(got, want) {
 		t.Errorf("nodes after merge = %v, want %v", got, want)
@@ -210,13 +278,13 @@ func TestUpdateRLabelsRebuildsNodes(t *testing.T) {
 
 func TestUpdateRLabelsUnscheduledPod(t *testing.T) {
 	pods := NewPods()
-	if err := pods.Init(set.New("app"), podSeq(
+	if err := pods.Init(testRLabels(map[string][]string{"ns1": {"app"}}), podSeq(
 		testPod("ns1", "pending-1", "", webFE),
 	)); err != nil {
 		t.Fatalf("Init() = %v, want nil", err)
 	}
 
-	pods.UpdateRLabels(set.New("app", "tier"))
+	pods.UpdateRLabels(testRLabels(map[string][]string{"ns1": {"app", "tier"}}))
 
 	// A pod the scheduler has not placed is in a class but on no node.
 	if got, want := len(pods.nodes), 0; got != want {

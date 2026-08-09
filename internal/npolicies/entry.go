@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"net/netip"
 
+	"github.com/bowei/kvec/pkg/kv"
 	"github.com/bowei/kvec/pkg/pred"
 	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/set"
 )
 
 // entry is the memory-efficient mirror of a
@@ -218,4 +222,101 @@ func newIPBlock(b *networkingv1.IPBlock) (*ipBlock, error) {
 		except = append(except, p)
 	}
 	return &ipBlock{CIDR: cidr, Except: except}, nil
+}
+
+// mergeKeys registers every label key np selects on with rl, attributed to the
+// namespaces whose objects are matched against them.
+//
+// The keys are read off the API object rather than the compiled entry: a
+// Predicate is built for matching and drops terms that pred.Build proves
+// redundant, while a key stays relevant as long as some selector names it. The
+// compiled entry is what the namespaceSelectors are *matched* with, since
+// newEntry has already built those Predicates and e mirrors np rule for rule
+// and peer for peer.
+//
+// Most keys land in the policy's own namespace: that is where its podSelector
+// selects, and where a peer whose namespaceSelector is omitted is confined. A
+// peer that does carry a namespaceSelector instead selects pods in every
+// namespace that selector matches, so its podSelector keys are registered
+// against those namespaces -- a pod there projected without them lands in an
+// equivalence class the peer selector then reads wrongly.
+//
+// Pod and Namespace keys are not separated. A peer's namespaceSelector names
+// Namespace labels and every other selector names Pod labels, but keeping one
+// set costs only tracking a few keys that cannot matter for one of the two
+// kinds -- an extra key splits equivalence classes finer than it has to, which
+// is the harmless direction -- and never drops one that can. Those keys stay
+// with the policy's own namespace: they are read off Namespaces, which no
+// namespace owns.
+// bowei-- this may need to be revisited.
+func (e *entry) mergeKeys(
+	rl *rlabels.Builder,
+	np *networkingv1.NetworkPolicy,
+	nsLabels map[string]*kv.KV,
+) {
+	own := set.New[string]()
+	addSelectorKeys(own, &np.Spec.PodSelector)
+	for i, r := range np.Spec.Ingress {
+		e.Ingress[i].mergePeerKeys(rl, own, r.From, nsLabels)
+	}
+	for i, r := range np.Spec.Egress {
+		e.Egress[i].mergePeerKeys(rl, own, r.To, nsLabels)
+	}
+
+	// Merged last: rl.Merge copies the set it is handed, so own can be filled
+	// in one pass and handed over once rather than per selector.
+	rl.Merge(e.Namespace, own)
+}
+
+// mergePeerKeys adds the keys peers name either to own -- the policy's own
+// namespace, settled by the caller -- or, for a peer reaching into other
+// namespaces, straight into rl under each namespace it reaches.
+func (r *rule) mergePeerKeys(
+	rl *rlabels.Builder,
+	own set.Set[string],
+	peers []networkingv1.NetworkPolicyPeer,
+	nsLabels map[string]*kv.KV,
+) {
+	for i, peer := range peers {
+		addSelectorKeys(own, peer.NamespaceSelector)
+		if peer.NamespaceSelector == nil {
+			addSelectorKeys(own, peer.PodSelector)
+			continue
+		}
+
+		// An empty namespaceSelector is not an omitted one: it matches every
+		// namespace, and its Predicate carries no terms, so the walk below
+		// reaches all of them without a case of its own.
+		//
+		// A peer with no podSelector selects every pod in the namespaces it
+		// reaches and so names no keys: there is nothing to register, and the
+		// walk over every namespace is skipped rather than run for an empty
+		// set.
+		podKeys := set.New[string]()
+		addSelectorKeys(podKeys, peer.PodSelector)
+		if podKeys.Len() == 0 {
+			continue
+		}
+		for ns, labels := range nsLabels {
+			if r.Peers[i].NamespaceSelector.Match(labels) {
+				rl.Merge(ns, podKeys)
+			}
+		}
+	}
+}
+
+// addSelectorKeys adds the keys sel names to keys. Every operator counts,
+// including DoesNotExist and NotIn: an object is matched against its labels
+// projected onto the relevant keys, so a key dropped from that projection
+// would read as absent and satisfy an exclusion the real object fails.
+func addSelectorKeys(keys set.Set[string], sel *metav1.LabelSelector) {
+	if sel == nil {
+		return
+	}
+	for key := range sel.MatchLabels {
+		keys.Insert(key)
+	}
+	for _, expr := range sel.MatchExpressions {
+		keys.Insert(expr.Key)
+	}
 }

@@ -2,13 +2,76 @@ package rlabels
 
 import "k8s.io/utils/set"
 
-type PerNsLabelSet map[string]set.Set[string]
+// Builder accumulates the relevant labels a namespace at a time -- one
+// contribution per policy, in whatever order the policies are walked -- and
+// freezes the result into an RLabels.
+//
+// The zero Builder is ready to use.
+type Builder struct {
+	// l is the set under construction. It stays nil until something lands in
+	// it, so a Builder nothing was merged into builds the same RLabels as one
+	// that was never touched.
+	l PerNsLabels
+}
+
+// Merge labels into the relevant set for namespace ns.
+//
+// The keys are copied out rather than the set being retained: the caller is
+// merging one policy's keys at a time and is free to keep the set it passed
+// and mutate it, while an RLabels hands its own sets straight back through
+// Difference and so needs sets nothing else still holds a reference to.
+//
+// An empty labels set does not register ns. A namespace with no relevant keys
+// projects every pod onto the empty label set, which is exactly what a
+// namespace absent from the map does, so recording it would buy no meaning and
+// would make a policy whose selectors name no keys -- an empty podSelector,
+// say -- show up as an Added and then a Removed ns as it comes and goes.
+func (b *Builder) Merge(ns string, labels set.Set[string]) {
+	if labels.Len() == 0 {
+		return
+	}
+	if cur, ok := b.l[ns]; ok {
+		cur.Insert(labels.UnsortedList()...)
+		return
+	}
+	if b.l == nil {
+		b.l = PerNsLabels{}
+	}
+	b.l[ns] = labels.Clone()
+}
+
+// Build freezes what has been merged so far into an RLabels and resets the
+// Builder, so a reused Builder starts from an empty set rather than continuing
+// the one it just handed over.
+//
+// The RLabels takes the accumulated map itself rather than a copy. It is then
+// the immutable side of a comparison -- kept as the old state, diffed against
+// the next one, and handing its own sets out through Diff -- which a later
+// Merge into the same ns would write through.
+func (b *Builder) Build() *RLabels {
+	rl := &RLabels{l: b.l}
+	b.l = nil
+	return rl
+}
+
+// PerNsLabels maps from ns -> labels for the namespace.
+type PerNsLabels map[string]set.Set[string]
 
 // RLabels encapsulates the Pod labels that are relevant for policy decisions
 // on each namespace.
 type RLabels struct {
 	// l is a map from ns -> labels.
-	l PerNsLabelSet
+	l PerNsLabels
+}
+
+// Labels returns the relevant labels of ns, and nil for a ns with none: a
+// namespace absent from the map and one recorded with an empty set mean the
+// same thing, that every object in it projects onto the empty label set.
+//
+// The set itself is returned rather than a copy, as Diff's payloads are, so it
+// must not be mutated.
+func (rl *RLabels) Labels(ns string) set.Set[string] {
+	return rl.l[ns]
 }
 
 // Diff partitions the namespaces whose relevant labels differ between two
@@ -22,9 +85,9 @@ type RLabels struct {
 // invalidates the projection), and the old set is what says which keys stop
 // being tracked once a ns drops out.
 type Diff struct {
-	Added   PerNsLabelSet
-	Removed PerNsLabelSet
-	Changed PerNsLabelSet
+	Added   PerNsLabels
+	Removed PerNsLabels
+	Changed PerNsLabels
 }
 
 // Difference reports how `rl` differs from `other`, treating `rl` as the new
@@ -63,9 +126,9 @@ func (rl *RLabels) Difference(other *RLabels) *Diff {
 	return &d
 }
 
-func insert(m PerNsLabelSet, ns string, labels set.Set[string]) PerNsLabelSet {
+func insert(m PerNsLabels, ns string, labels set.Set[string]) PerNsLabels {
 	if m == nil {
-		m = PerNsLabelSet{}
+		m = PerNsLabels{}
 	}
 	m[ns] = labels
 	return m
