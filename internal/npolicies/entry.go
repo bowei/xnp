@@ -2,6 +2,7 @@ package npolicies
 
 import (
 	"fmt"
+	"net/netip"
 
 	"github.com/bowei/kvec/pkg/pred"
 	"github.com/bowei/xnp/internal/repr/convert"
@@ -18,34 +19,34 @@ type entry struct {
 
 	PodSelector *pred.Predicate
 	PolicyTypes []networkingv1.PolicyType
-	Ingress     []Rule
-	Egress      []Rule
+	Ingress     []rule
+	Egress      []rule
 }
 
-// Peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
+// peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
 //
 // A nil PodSelector/NamespaceSelector means the field was not specified,
 // which the NetworkPolicy API distinguishes from an empty selector: an
 // omitted namespaceSelector restricts the peer to the policy's own namespace,
 // while an empty one matches every namespace.
-type Peer struct {
+type peer struct {
 	PodSelector       *pred.Predicate
 	NamespaceSelector *pred.Predicate
-	IPBlock           *IPBlock
+	IPBlock           *ipBlock
 }
 
-// Rule is the memory-efficient mirror of a
+// rule is the memory-efficient mirror of a
 // networkingv1.NetworkPolicyIngress/EgressRule.
-type Rule struct {
-	Peers []Peer
-	Ports []Port
+type rule struct {
+	Peers []peer
+	Ports []port
 }
 
-// Port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
-// A nil Port means every port; a non-nil EndPort makes [Port, EndPort] a
+// port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
+// A nil port means every port; a non-nil EndPort makes [port, EndPort] a
 // range. Protocol is always one of TCP/UDP/SCTP, defaulted to TCP as the API
 // defaults it.
-type Port struct {
+type port struct {
 	Protocol corev1.Protocol
 	Port     *int32
 	EndPort  *int32
@@ -65,7 +66,7 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
 	}
 
-	ingress := make([]Rule, len(np.Spec.Ingress))
+	ingress := make([]rule, len(np.Spec.Ingress))
 	for i, r := range np.Spec.Ingress {
 		rule, err := newRule(r.From, r.Ports)
 		if err != nil {
@@ -74,7 +75,7 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 		ingress[i] = rule
 	}
 
-	egress := make([]Rule, len(np.Spec.Egress))
+	egress := make([]rule, len(np.Spec.Egress))
 	for i, r := range np.Spec.Egress {
 		rule, err := newRule(r.To, r.Ports)
 		if err != nil {
@@ -100,23 +101,23 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 func newRule(
 	peers []networkingv1.NetworkPolicyPeer,
 	ports []networkingv1.NetworkPolicyPort,
-) (Rule, error) {
+) (rule, error) {
 	convertedPeers, err := newPeers(peers)
 	if err != nil {
-		return Rule{}, err
+		return rule{}, err
 	}
 	convertedPorts, err := newPorts(ports)
 	if err != nil {
-		return Rule{}, err
+		return rule{}, err
 	}
-	return Rule{Peers: convertedPeers, Ports: convertedPorts}, nil
+	return rule{Peers: convertedPeers, Ports: convertedPorts}, nil
 }
 
-func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
+func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]peer, error) {
 	if len(peers) == 0 {
 		return nil, nil
 	}
-	out := make([]Peer, len(peers))
+	out := make([]peer, len(peers))
 	for i, p := range peers {
 		podSelector, err := convert.SelectorToPred(p.PodSelector)
 		if err != nil {
@@ -130,7 +131,7 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: %w", i, err)
 		}
-		out[i] = Peer{
+		out[i] = peer{
 			PodSelector:       podSelector,
 			NamespaceSelector: nsSelector,
 			IPBlock:           block,
@@ -139,11 +140,11 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 	return out, nil
 }
 
-func newPorts(ports []networkingv1.NetworkPolicyPort) ([]Port, error) {
+func newPorts(ports []networkingv1.NetworkPolicyPort) ([]port, error) {
 	if len(ports) == 0 {
 		return nil, nil
 	}
-	out := make([]Port, len(ports))
+	out := make([]port, len(ports))
 	for i, p := range ports {
 		port, err := newPort(p)
 		if err != nil {
@@ -157,20 +158,20 @@ func newPorts(ports []networkingv1.NetworkPolicyPort) ([]Port, error) {
 // Named (string) ports are unsupported, matching internal/policy's
 // resolvePorts: resolving them needs per-peer-pod container port lookups,
 // so conversion errors rather than producing a silently wrong Port.
-func newPort(p networkingv1.NetworkPolicyPort) (Port, error) {
-	out := Port{Protocol: corev1.ProtocolTCP}
+func newPort(p networkingv1.NetworkPolicyPort) (port, error) {
+	out := port{Protocol: corev1.ProtocolTCP}
 	if p.Protocol != nil {
 		switch *p.Protocol {
 		case corev1.ProtocolTCP, corev1.ProtocolUDP, corev1.ProtocolSCTP:
 			out.Protocol = *p.Protocol
 		default:
-			return Port{}, fmt.Errorf("unsupported protocol %q", *p.Protocol)
+			return port{}, fmt.Errorf("unsupported protocol %q", *p.Protocol)
 		}
 	}
 
 	if p.Port != nil {
 		if p.Port.Type != intstr.Int {
-			return Port{}, fmt.Errorf("named port %q is unsupported", p.Port.StrVal)
+			return port{}, fmt.Errorf("named port %q is unsupported", p.Port.StrVal)
 		}
 		port := p.Port.IntVal
 		out.Port = &port
@@ -178,14 +179,43 @@ func newPort(p networkingv1.NetworkPolicyPort) (Port, error) {
 
 	if p.EndPort != nil {
 		if out.Port == nil {
-			return Port{}, fmt.Errorf("endPort %d set without a port", *p.EndPort)
+			return port{}, fmt.Errorf("endPort %d set without a port", *p.EndPort)
 		}
 		if *p.EndPort < *out.Port {
-			return Port{}, fmt.Errorf("endPort %d is less than port %d", *p.EndPort, *out.Port)
+			return port{}, fmt.Errorf("endPort %d is less than port %d", *p.EndPort, *out.Port)
 		}
 		endPort := *p.EndPort
 		out.EndPort = &endPort
 	}
 
 	return out, nil
+}
+
+// ipBlock is the memory-efficient mirror of a networkingv1.ipBlock.
+//
+// Except is stored for completeness but, matching internal/policy's
+// documented simplification, is not carved out of CIDR by anything that
+// consumes repr yet.
+type ipBlock struct {
+	CIDR   netip.Prefix
+	Except []netip.Prefix
+}
+
+func newIPBlock(b *networkingv1.IPBlock) (*ipBlock, error) {
+	if b == nil {
+		return nil, nil
+	}
+	cidr, err := netip.ParsePrefix(b.CIDR)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CIDR %q: %w", b.CIDR, err)
+	}
+	var except []netip.Prefix
+	for _, e := range b.Except {
+		p, err := netip.ParsePrefix(e)
+		if err != nil {
+			return nil, fmt.Errorf("invalid except CIDR %q: %w", e, err)
+		}
+		except = append(except, p)
+	}
+	return &ipBlock{CIDR: cidr, Except: except}, nil
 }
