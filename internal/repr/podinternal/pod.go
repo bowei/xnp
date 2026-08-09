@@ -8,7 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Pod is the memory-efficient mirror of a corev1.Pod.
+// Pod is the memory-efficient subset of a corev1.Pod with only the relevant
+// fields stored.
 type Pod struct {
 	Namespace string
 	Name      string
