@@ -8,7 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-type entry struct {
+type Entry struct {
 	Namespace string
 	Name      string
 	Labels    map[string]string
@@ -19,15 +19,16 @@ type entry struct {
 	// rules for the pods running on it.
 	Node string
 
+	// EQC for this entry.
 	EQC *kv.KV
 }
 
-func podToEntry(pod *corev1.Pod) (*entry, error) {
+func podToEntry(pod *corev1.Pod) (*Entry, error) {
 	ips, err := podIPs(pod)
 	if err != nil {
 		return nil, fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
-	return &entry{
+	return &Entry{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 		Labels:    pod.Labels,

@@ -6,7 +6,7 @@ import (
 
 	"github.com/bowei/kvec/pkg/kv"
 	"github.com/bowei/kvec/pkg/pred"
-	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"

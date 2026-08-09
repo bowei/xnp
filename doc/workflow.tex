@@ -69,7 +69,10 @@ and need to be retried with new information.
 
 \section{Workflow}
 
+This graph shows the relationships of the incremental update workflows:
+
 \digraph{w1}{
+    Namespace -> NetworkPolicy;
     NetworkPolicy -> Predicates;
     Predicates -> RelevantLabels;
     Pod -> EqC;
@@ -82,6 +85,13 @@ and need to be retried with new information.
     EqcPolicyOutcome -> Output;
     PodJoinNode -> Output;
 }
+
+Other things we need to be careful of:
+
+\begin{itemize}
+    \item We need to ignore Pods that have not been scheduled (no Node).
+    \item We may get updates out of order (dangling references to Namespace).
+\end{itemize}
 
 \section{Data}
 

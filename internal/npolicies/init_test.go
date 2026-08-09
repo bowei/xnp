@@ -67,7 +67,7 @@ func perNs(pls rlabels.PerNsLabels) string {
 	return fmt.Sprint(out)
 }
 
-func checkNames(t *testing.T, nps *NPolicies, want map[string][]string) {
+func checkNames(t *testing.T, nps *Store, want map[string][]string) {
 	t.Helper()
 
 	if got, want := len(nps.nps), len(want); got != want {
@@ -126,7 +126,7 @@ func TestInit(t *testing.T) {
 		"ns3": {"tier": "dev"},
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(namespaces, testSeq(np1, np2, np3)); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestInit_NamespaceSelectorMatchesOwnNamespace(t *testing.T) {
 		"ns2": {"tier": "dev"},
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(namespaces, testSeq(np)); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestInit_EmptyNamespaceSelector(t *testing.T) {
 		"ns3": nil,
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(namespaces, testSeq(np)); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestInit_NamespaceSelectorNoKeys(t *testing.T) {
 		"ns2": {"tier": "dev"},
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(namespaces, testSeq(unmatched, allPods)); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestInit_NoKeys(t *testing.T) {
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(nil, testSeq(np)); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestInit_NoKeys(t *testing.T) {
 }
 
 func TestInit_Empty(t *testing.T) {
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(nil, testSeq()); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestInit_Replaces(t *testing.T) {
 		PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"role": "db"}},
 	})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(nil, testSeq(first)); err != nil {
 		t.Fatalf("first Init: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestInit_ConversionErrorLeavesStore(t *testing.T) {
 	})
 	after := testPolicy("ns3", "np3", networkingv1.NetworkPolicySpec{})
 
-	nps := NewNPolicies()
+	nps := New()
 	if err := nps.Init(nil, testSeq(good)); err != nil {
 		t.Fatalf("first Init: %v", err)
 	}

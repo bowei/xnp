@@ -4,24 +4,24 @@ import (
 	"log/slog"
 
 	"github.com/bowei/kvec/pkg/kv"
-	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/rlabels"
 	"k8s.io/utils/set"
 )
 
-func (pods *Pods) Add() {
+func (pods *Store) Add() {
 	pods.lock.Lock()
 	defer pods.lock.Unlock()
 
 }
 
-func (pods *Pods) Update() {
+func (pods *Store) Update() {
 	pods.lock.Lock()
 	defer pods.lock.Unlock()
 
 }
 
-func (pods *Pods) Remove() {
+func (pods *Store) Remove() {
 	pods.lock.Lock()
 	defer pods.lock.Unlock()
 
@@ -31,7 +31,7 @@ func (pods *Pods) Remove() {
 // the entry's rewritten EQC; only the origin has to be carried, because
 // rewriting the entry is what destroys the sole record of where it used to sit.
 type move struct {
-	entry *entry
+	entry *Entry
 	from  kv.MapKey
 }
 
@@ -48,7 +48,7 @@ type move struct {
 // The pods themselves do not change. They keep their labels raw precisely for
 // this — the projection is the only thing that goes stale — so the re-grouping
 // reads what is already stored and needs nothing from the API.
-func (pods *Pods) UpdateRLabels(newRLabels *rlabels.RLabels) {
+func (pods *Store) UpdateRLabels(newRLabels *rlabels.RLabels) {
 	slog.Info("UpdateRLabels", "newRLabels", newRLabels)
 
 	pods.lock.Lock()
@@ -128,7 +128,7 @@ func (pods *Pods) UpdateRLabels(newRLabels *rlabels.RLabels) {
 //
 // Reports whether any pod moved, which is what says the nodes index has to be
 // rebuilt.
-func (pods *Pods) regroupNs(ns string, labels, touched set.Set[string]) bool {
+func (pods *Store) regroupNs(ns string, labels, touched set.Set[string]) bool {
 	var changedEntries []move
 
 	// Find entries that will change with the update to the labels and rewrite
@@ -165,7 +165,7 @@ func (pods *Pods) regroupNs(ns string, labels, touched set.Set[string]) bool {
 		to := m.entry.EQC.Comparable()
 		inTo, ok := byEQC[to]
 		if !ok {
-			inTo = map[string]*entry{}
+			inTo = map[string]*Entry{}
 			byEQC[to] = inTo
 		}
 		inTo[m.entry.Name] = m.entry

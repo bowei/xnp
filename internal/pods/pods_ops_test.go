@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/bowei/kvec/pkg/kv"
-	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,7 +49,7 @@ func testRLabels(perNs map[string][]string) *rlabels.RLabels {
 }
 
 // classes is the eqc index of ns flattened to sorted member names per class.
-func classes(t *testing.T, pods *Pods, ns string) map[kv.MapKey][]string {
+func classes(t *testing.T, pods *Store, ns string) map[kv.MapKey][]string {
 	t.Helper()
 	got := map[kv.MapKey][]string{}
 	for key, members := range pods.eqc[ns] {
@@ -69,7 +69,7 @@ func classes(t *testing.T, pods *Pods, ns string) map[kv.MapKey][]string {
 	return got
 }
 
-func nodeClasses(pods *Pods) map[string][]kv.MapKey {
+func nodeClasses(pods *Store) map[string][]kv.MapKey {
 	got := map[string][]kv.MapKey{}
 	for node, keys := range pods.nodes {
 		got[node] = keys.SortedList()
@@ -86,9 +86,9 @@ var (
 	unlabeled = map[string]string{"unrelated": "x"}
 )
 
-func initPods(t *testing.T, perNs map[string][]string) *Pods {
+func initPods(t *testing.T, perNs map[string][]string) *Store {
 	t.Helper()
-	pods := NewPods()
+	pods := New()
 	err := pods.Init(testRLabels(perNs), podSeq(
 		testPod("ns1", "web-1", "node-a", webFE),
 		testPod("ns1", "web-2", "node-a", webBE),
@@ -155,7 +155,7 @@ func TestUpdateRLabelsMergesClasses(t *testing.T) {
 // namespace says nothing about the pods of another, even when they carry the
 // very same labels.
 func TestUpdateRLabelsScopedToNamespace(t *testing.T) {
-	pods := NewPods()
+	pods := New()
 	if err := pods.Init(testRLabels(map[string][]string{"ns1": {"app"}}), podSeq(
 		testPod("ns1", "web-1", "node-a", webFE),
 		testPod("ns2", "web-2", "node-a", webFE),
@@ -277,7 +277,7 @@ func TestUpdateRLabelsRebuildsNodes(t *testing.T) {
 }
 
 func TestUpdateRLabelsUnscheduledPod(t *testing.T) {
-	pods := NewPods()
+	pods := New()
 	if err := pods.Init(testRLabels(map[string][]string{"ns1": {"app"}}), podSeq(
 		testPod("ns1", "pending-1", "", webFE),
 	)); err != nil {

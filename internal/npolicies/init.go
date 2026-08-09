@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bowei/kvec/pkg/kv"
-	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/networking/v1"
@@ -28,7 +28,7 @@ import (
 // state as well as policy state, so the incremental path has to recompute them
 // when a namespace's labels change or a namespace comes or goes, not only when
 // a policy does.
-func (nps *NPolicies) Init(
+func (nps *Store) Init(
 	namespaces map[string]*corev1.Namespace,
 	npSeq func(yield func(*v1.NetworkPolicy) bool),
 ) error {

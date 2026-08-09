@@ -8,7 +8,7 @@ import (
 	"k8s.io/utils/set"
 )
 
-type Pods struct {
+type Store struct {
 	lock sync.RWMutex
 
 	// rlabels is the relevant labels used to create the equivalence classes.
@@ -17,21 +17,21 @@ type Pods struct {
 	rlabels *rlabels.RLabels
 
 	// pods maps ns -> name -> entry.
-	pods map[string]map[string]*entry
+	pods map[string]map[string]*Entry
 	// eqc maps ns -> eqc -> name -> entry.
-	eqc map[string]map[kv.MapKey]map[string]*entry
+	eqc map[string]map[kv.MapKey]map[string]*Entry
 	// nodes maps node.Name -> [eqc]
 	nodes map[string]set.Set[kv.MapKey]
 }
 
-func NewPods() *Pods {
-	return &Pods{
+func New() *Store {
+	return &Store{
 		// An empty RLabels rather than nil, so that an update arriving before
 		// Init diffs against "nothing is relevant" instead of dereferencing a
 		// nil store.
 		rlabels: &rlabels.RLabels{},
-		pods:    map[string]map[string]*entry{},
-		eqc:     map[string]map[kv.MapKey]map[string]*entry{},
+		pods:    map[string]map[string]*Entry{},
+		eqc:     map[string]map[kv.MapKey]map[string]*Entry{},
 		nodes:   map[string]set.Set[kv.MapKey]{},
 	}
 }

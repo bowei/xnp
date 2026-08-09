@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/bowei/kvec/pkg/kv"
-	"github.com/bowei/xnp/internal/repr/convert"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/rlabels"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/set"
 )
 
-func (pods *Pods) Init(
+func (pods *Store) Init(
 	relevantLabels *rlabels.RLabels,
 	podSeq func(yield func(*corev1.Pod) bool),
 ) error {
@@ -22,7 +22,7 @@ func (pods *Pods) Init(
 	// Convert all Pods
 	var err error
 	for pod := range podSeq {
-		var e *entry
+		var e *Entry
 		e, err = podToEntry(pod)
 		if err != nil {
 			// The iterator is stopped rather than returned from directly: a
@@ -44,7 +44,7 @@ func (pods *Pods) Init(
 		// ns -> name -> Pod.
 		inNs, ok := pods.pods[pod.Namespace]
 		if !ok {
-			inNs = map[string]*entry{}
+			inNs = map[string]*Entry{}
 			pods.pods[pod.Namespace] = inNs
 		}
 		inNs[pod.Name] = e
@@ -53,12 +53,12 @@ func (pods *Pods) Init(
 		eqcKey := e.EQC.Comparable()
 		byEQC, ok := pods.eqc[pod.Namespace]
 		if !ok {
-			byEQC = map[kv.MapKey]map[string]*entry{}
+			byEQC = map[kv.MapKey]map[string]*Entry{}
 			pods.eqc[pod.Namespace] = byEQC
 		}
 		inEQC, ok := byEQC[eqcKey]
 		if !ok {
-			inEQC = map[string]*entry{}
+			inEQC = map[string]*Entry{}
 			byEQC[eqcKey] = inEQC
 		}
 		inEQC[pod.Name] = e
