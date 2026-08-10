@@ -116,9 +116,14 @@ func runGenerate(args []string, stdout, stderr io.Writer) error {
 		if *graphArg != "" {
 			// A graph file is the whole input: -params and -seed describe how a
 			// graph would have been built, and honoring them here would mean
-			// silently generating a different cluster than the file names.
-			if *paramsArg != "" {
-				return fmt.Errorf("-graph and -params are mutually exclusive")
+			// silently generating a different cluster than the file names. An
+			// explicit -seed is caught by asking which flags were set rather
+			// than by comparing against the default, since 0 is a seed a user
+			// may well have chosen.
+			for _, name := range setFlags(fs) {
+				if name == "params" || name == "seed" {
+					return fmt.Errorf("-graph and -%s are mutually exclusive", name)
+				}
 			}
 			g, err = loadGraph(*graphArg)
 		} else {
@@ -178,6 +183,14 @@ func loadGraph(path string) (*Graph, error) {
 // failed write to stderr has nowhere left to be reported.
 func writeString(w io.Writer, s string) {
 	_, _ = io.WriteString(w, s)
+}
+
+// setFlags is the names of the flags actually present on the command line, as
+// opposed to the ones sitting at their defaults.
+func setFlags(fs *flag.FlagSet) []string {
+	var names []string
+	fs.Visit(func(f *flag.Flag) { names = append(names, f.Name) })
+	return names
 }
 
 func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
