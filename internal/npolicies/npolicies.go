@@ -38,3 +38,27 @@ func (nps *Store) RLabels() *rlabels.RLabels {
 
 	return nps.rlabels
 }
+
+// All iterates every stored policy. Order is unspecified -- the store is keyed
+// by namespace and then name, and neither map is walked in any order a caller
+// can rely on -- and the store must not be modified during iteration.
+//
+// The Entries are handed out rather than copied: an Entry is immutable once
+// newEntry has built it, and what a consumer wants is the identity of the
+// policy a row of its own resolves back to, not a snapshot of the fields.
+//
+// The read lock is held for the whole walk, so a body that reaches into
+// another store puts an ordering on the two locks. Callers that need both
+// should collect from here first.
+func (nps *Store) All(yield func(*Entry) bool) {
+	nps.lock.RLock()
+	defer nps.lock.RUnlock()
+
+	for _, inNs := range nps.nps {
+		for _, e := range inNs {
+			if !yield(e) {
+				return
+			}
+		}
+	}
+}
