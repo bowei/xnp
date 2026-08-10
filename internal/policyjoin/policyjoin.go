@@ -5,6 +5,9 @@ import (
 	"github.com/bowei/xnp/internal/pods"
 )
 
+type entry struct {
+}
+
 type Join struct {
 }
 

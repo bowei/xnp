@@ -10,7 +10,7 @@ type Store struct {
 	lock sync.RWMutex
 
 	// nps maps ns -> name -> entry.
-	nps map[string]map[string]*entry
+	nps map[string]map[string]*Entry
 
 	// rlabels is the current set of relevant labels computed from across all
 	// of the network policies.
@@ -19,7 +19,7 @@ type Store struct {
 
 func New() *Store {
 	return &Store{
-		nps: map[string]map[string]*entry{},
+		nps: map[string]map[string]*Entry{},
 	}
 }
 

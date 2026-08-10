@@ -35,7 +35,7 @@ func (nps *Store) Init(
 	nps.lock.Lock()
 	defer nps.lock.Unlock()
 
-	byNs := map[string]map[string]*entry{}
+	byNs := map[string]map[string]*Entry{}
 	var rl rlabels.Builder
 
 	// Compiled once for the whole call rather than once per namespaceSelector:
@@ -51,7 +51,7 @@ func (nps *Store) Init(
 
 	var err error
 	for np := range npSeq {
-		var e *entry
+		var e *Entry
 		e, err = newEntry(np)
 		if err != nil {
 			// The iterator is stopped rather than returned from directly: a
@@ -64,7 +64,7 @@ func (nps *Store) Init(
 		// ns -> name -> entry.
 		inNs, ok := byNs[e.Namespace]
 		if !ok {
-			inNs = map[string]*entry{}
+			inNs = map[string]*Entry{}
 			byNs[e.Namespace] = inNs
 		}
 		inNs[e.Name] = e

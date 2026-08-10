@@ -15,42 +15,41 @@ import (
 	"k8s.io/utils/set"
 )
 
-// entry is the memory-efficient mirror of a
-// networkingv1.entry.
-type entry struct {
+// Entry is the memory-efficient mirror of the Kubernetes resource.
+type Entry struct {
 	Namespace string
 	Name      string
 
 	PodSelector *pred.Predicate
 	PolicyTypes []networkingv1.PolicyType
-	Ingress     []rule
-	Egress      []rule
+	Ingress     []Rule
+	Egress      []Rule
 }
 
-// peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
+// Peer is the memory-efficient mirror of a networkingv1.NetworkPolicyPeer.
 //
 // A nil PodSelector/NamespaceSelector means the field was not specified,
 // which the NetworkPolicy API distinguishes from an empty selector: an
-// omitted namespaceSelector restricts the peer to the policy's own namespace,
+// omitted namespaceSelector restricts the Peer to the policy's own namespace,
 // while an empty one matches every namespace.
-type peer struct {
+type Peer struct {
 	PodSelector       *pred.Predicate
 	NamespaceSelector *pred.Predicate
 	IPBlock           *ipBlock
 }
 
-// rule is the memory-efficient mirror of a
+// Rule is the memory-efficient mirror of a
 // networkingv1.NetworkPolicyIngress/EgressRule.
-type rule struct {
-	Peers []peer
-	Ports []port
+type Rule struct {
+	Peers []Peer
+	Ports []Port
 }
 
-// port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
-// A nil port means every port; a non-nil EndPort makes [port, EndPort] a
+// Port is the memory-efficient mirror of a networkingv1.NetworkPolicyPort.
+// A nil Port means every Port; a non-nil EndPort makes [Port, EndPort] a
 // range. Protocol is always one of TCP/UDP/SCTP, defaulted to TCP as the API
 // defaults it.
-type port struct {
+type Port struct {
 	Protocol corev1.Protocol
 	Port     *int32
 	EndPort  *int32
@@ -64,13 +63,13 @@ type port struct {
 // or a named (string) port. Since this runs once per policy up front, a
 // policy that would render wrongly is rejected even if no pod ever selects
 // it, rather than at the point some renderer happens to evaluate the rule.
-func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
+func newEntry(np *networkingv1.NetworkPolicy) (*Entry, error) {
 	podSelector, err := convert.SelectorToPred(&np.Spec.PodSelector)
 	if err != nil {
 		return nil, fmt.Errorf("networkpolicy %s/%s: podSelector: %w", np.Namespace, np.Name, err)
 	}
 
-	ingress := make([]rule, len(np.Spec.Ingress))
+	ingress := make([]Rule, len(np.Spec.Ingress))
 	for i, r := range np.Spec.Ingress {
 		rule, err := newRule(r.From, r.Ports)
 		if err != nil {
@@ -79,7 +78,7 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 		ingress[i] = rule
 	}
 
-	egress := make([]rule, len(np.Spec.Egress))
+	egress := make([]Rule, len(np.Spec.Egress))
 	for i, r := range np.Spec.Egress {
 		rule, err := newRule(r.To, r.Ports)
 		if err != nil {
@@ -88,7 +87,7 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 		egress[i] = rule
 	}
 
-	return &entry{
+	return &Entry{
 		Namespace:   np.Namespace,
 		Name:        np.Name,
 		PodSelector: podSelector,
@@ -105,23 +104,23 @@ func newEntry(np *networkingv1.NetworkPolicy) (*entry, error) {
 func newRule(
 	peers []networkingv1.NetworkPolicyPeer,
 	ports []networkingv1.NetworkPolicyPort,
-) (rule, error) {
+) (Rule, error) {
 	convertedPeers, err := newPeers(peers)
 	if err != nil {
-		return rule{}, err
+		return Rule{}, err
 	}
 	convertedPorts, err := newPorts(ports)
 	if err != nil {
-		return rule{}, err
+		return Rule{}, err
 	}
-	return rule{Peers: convertedPeers, Ports: convertedPorts}, nil
+	return Rule{Peers: convertedPeers, Ports: convertedPorts}, nil
 }
 
-func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]peer, error) {
+func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]Peer, error) {
 	if len(peers) == 0 {
 		return nil, nil
 	}
-	out := make([]peer, len(peers))
+	out := make([]Peer, len(peers))
 	for i, p := range peers {
 		podSelector, err := convert.SelectorToPred(p.PodSelector)
 		if err != nil {
@@ -135,7 +134,7 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]peer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("peer %d: %w", i, err)
 		}
-		out[i] = peer{
+		out[i] = Peer{
 			PodSelector:       podSelector,
 			NamespaceSelector: nsSelector,
 			IPBlock:           block,
@@ -144,11 +143,11 @@ func newPeers(peers []networkingv1.NetworkPolicyPeer) ([]peer, error) {
 	return out, nil
 }
 
-func newPorts(ports []networkingv1.NetworkPolicyPort) ([]port, error) {
+func newPorts(ports []networkingv1.NetworkPolicyPort) ([]Port, error) {
 	if len(ports) == 0 {
 		return nil, nil
 	}
-	out := make([]port, len(ports))
+	out := make([]Port, len(ports))
 	for i, p := range ports {
 		port, err := newPort(p)
 		if err != nil {
@@ -162,20 +161,20 @@ func newPorts(ports []networkingv1.NetworkPolicyPort) ([]port, error) {
 // Named (string) ports are unsupported, matching internal/policy's
 // resolvePorts: resolving them needs per-peer-pod container port lookups,
 // so conversion errors rather than producing a silently wrong Port.
-func newPort(p networkingv1.NetworkPolicyPort) (port, error) {
-	out := port{Protocol: corev1.ProtocolTCP}
+func newPort(p networkingv1.NetworkPolicyPort) (Port, error) {
+	out := Port{Protocol: corev1.ProtocolTCP}
 	if p.Protocol != nil {
 		switch *p.Protocol {
 		case corev1.ProtocolTCP, corev1.ProtocolUDP, corev1.ProtocolSCTP:
 			out.Protocol = *p.Protocol
 		default:
-			return port{}, fmt.Errorf("unsupported protocol %q", *p.Protocol)
+			return Port{}, fmt.Errorf("unsupported protocol %q", *p.Protocol)
 		}
 	}
 
 	if p.Port != nil {
 		if p.Port.Type != intstr.Int {
-			return port{}, fmt.Errorf("named port %q is unsupported", p.Port.StrVal)
+			return Port{}, fmt.Errorf("named port %q is unsupported", p.Port.StrVal)
 		}
 		port := p.Port.IntVal
 		out.Port = &port
@@ -183,10 +182,10 @@ func newPort(p networkingv1.NetworkPolicyPort) (port, error) {
 
 	if p.EndPort != nil {
 		if out.Port == nil {
-			return port{}, fmt.Errorf("endPort %d set without a port", *p.EndPort)
+			return Port{}, fmt.Errorf("endPort %d set without a port", *p.EndPort)
 		}
 		if *p.EndPort < *out.Port {
-			return port{}, fmt.Errorf("endPort %d is less than port %d", *p.EndPort, *out.Port)
+			return Port{}, fmt.Errorf("endPort %d is less than port %d", *p.EndPort, *out.Port)
 		}
 		endPort := *p.EndPort
 		out.EndPort = &endPort
@@ -249,7 +248,7 @@ func newIPBlock(b *networkingv1.IPBlock) (*ipBlock, error) {
 // with the policy's own namespace: they are read off Namespaces, which no
 // namespace owns.
 // bowei-- this may need to be revisited.
-func (e *entry) mergeKeys(
+func (e *Entry) mergeKeys(
 	rl *rlabels.Builder,
 	np *networkingv1.NetworkPolicy,
 	nsLabels map[string]*kv.KV,
@@ -271,7 +270,7 @@ func (e *entry) mergeKeys(
 // mergePeerKeys adds the keys peers name either to own -- the policy's own
 // namespace, settled by the caller -- or, for a peer reaching into other
 // namespaces, straight into rl under each namespace it reaches.
-func (r *rule) mergePeerKeys(
+func (r *Rule) mergePeerKeys(
 	rl *rlabels.Builder,
 	own set.Set[string],
 	peers []networkingv1.NetworkPolicyPeer,
