@@ -51,15 +51,27 @@ func (pods *Store) Init(
 
 		// ns -> eqc -> name -> Pod.
 		eqcKey := e.EQC.Comparable()
-		byEQC, ok := pods.eqc[pod.Namespace]
+		byEQC, ok := pods.eqcToPod[pod.Namespace]
 		if !ok {
 			byEQC = map[kv.MapKey]map[string]*Entry{}
-			pods.eqc[pod.Namespace] = byEQC
+			pods.eqcToPod[pod.Namespace] = byEQC
 		}
 		inEQC, ok := byEQC[eqcKey]
 		if !ok {
 			inEQC = map[string]*Entry{}
 			byEQC[eqcKey] = inEQC
+
+			// ns -> eqc -> KV, recorded as the class appears. The eqc index
+			// only holds the MapKey, which is an encoding of the projection
+			// and not the projection itself; anything that has to match a
+			// class against a selector needs the KV back, and this is what
+			// keeps it without holding one entry of the class hostage.
+			classes, ok := pods.eqc[pod.Namespace]
+			if !ok {
+				classes = map[kv.MapKey]*kv.KV{}
+				pods.eqc[pod.Namespace] = classes
+			}
+			classes[eqcKey] = e.EQC
 		}
 		inEQC[pod.Name] = e
 

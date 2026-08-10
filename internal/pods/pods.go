@@ -18,8 +18,10 @@ type Store struct {
 
 	// pods maps ns -> name -> entry.
 	pods map[string]map[string]*Entry
-	// eqc maps ns -> eqc -> name -> entry.
-	eqc map[string]map[kv.MapKey]map[string]*Entry
+	// eqcToPod maps ns -> eqcToPod -> name -> entry.
+	eqcToPod map[string]map[kv.MapKey]map[string]*Entry
+	// eqc maps ns -> eqc classes for the namespace.
+	eqc map[string]map[kv.MapKey]*kv.KV
 	// nodes maps node.Name -> [eqc]
 	nodes map[string]set.Set[kv.MapKey]
 }
@@ -29,9 +31,10 @@ func New() *Store {
 		// An empty RLabels rather than nil, so that an update arriving before
 		// Init diffs against "nothing is relevant" instead of dereferencing a
 		// nil store.
-		rlabels: &rlabels.RLabels{},
-		pods:    map[string]map[string]*Entry{},
-		eqc:     map[string]map[kv.MapKey]map[string]*Entry{},
-		nodes:   map[string]set.Set[kv.MapKey]{},
+		rlabels:  &rlabels.RLabels{},
+		pods:     map[string]map[string]*Entry{},
+		eqcToPod: map[string]map[kv.MapKey]map[string]*Entry{},
+		eqc:      map[string]map[kv.MapKey]*kv.KV{},
+		nodes:    map[string]set.Set[kv.MapKey]{},
 	}
 }

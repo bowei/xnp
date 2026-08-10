@@ -6,6 +6,8 @@ import (
 )
 
 type entry struct {
+	policy *npolicies.Entry
+	src
 }
 
 type Join struct {

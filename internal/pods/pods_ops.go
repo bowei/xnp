@@ -151,7 +151,10 @@ func (pods *Store) regroupNs(ns string, labels, touched set.Set[string]) bool {
 		return false
 	}
 
-	byEQC := pods.eqc[ns]
+	byEQC := pods.eqcToPod[ns]
+	// Present whenever the namespace holds a pod, which having something to
+	// move already establishes.
+	classes := pods.eqc[ns]
 	for _, m := range changedEntries {
 		inFrom := byEQC[m.from]
 		delete(inFrom, m.entry.Name)
@@ -159,7 +162,11 @@ func (pods *Store) regroupNs(ns string, labels, touched set.Set[string]) bool {
 			// Drained classes are dropped rather than left empty, so that
 			// walking the classes of a namespace costs what its live label
 			// sets cost and not what every label set it has ever held does.
+			// The class list is the same walk by another name and drains with
+			// it; a class kept there after its last pod left would be a class
+			// nothing can ever match a pod through.
 			delete(byEQC, m.from)
+			delete(classes, m.from)
 		}
 
 		to := m.entry.EQC.Comparable()
@@ -167,6 +174,7 @@ func (pods *Store) regroupNs(ns string, labels, touched set.Set[string]) bool {
 		if !ok {
 			inTo = map[string]*Entry{}
 			byEQC[to] = inTo
+			classes[to] = m.entry.EQC
 		}
 		inTo[m.entry.Name] = m.entry
 	}

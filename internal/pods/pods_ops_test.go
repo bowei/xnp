@@ -52,7 +52,7 @@ func testRLabels(perNs map[string][]string) *rlabels.RLabels {
 func classes(t *testing.T, pods *Store, ns string) map[kv.MapKey][]string {
 	t.Helper()
 	got := map[kv.MapKey][]string{}
-	for key, members := range pods.eqc[ns] {
+	for key, members := range pods.eqcToPod[ns] {
 		if len(members) == 0 {
 			t.Errorf("eqc[%q][%q] is empty, want drained classes to be pruned", ns, key)
 		}
@@ -66,6 +66,23 @@ func classes(t *testing.T, pods *Store, ns string) map[kv.MapKey][]string {
 		slices.Sort(names)
 		got[key] = names
 	}
+
+	// The class list is checked here rather than in a test of its own because
+	// it is not an independent fact: it has to name exactly the live classes of
+	// the namespace, so every test that asserts a grouping asserts this too.
+	classList := pods.eqc[ns]
+	if got, want := len(classList), len(got); got != want {
+		t.Errorf("len(eqc classes[%q]) = %v, want %v", ns, got, want)
+	}
+	for key, class := range classList {
+		if _, ok := pods.eqcToPod[ns][key]; !ok {
+			t.Errorf("eqc classes[%q] holds %q, want only classes with members", ns, key)
+		}
+		if class.Comparable() != key {
+			t.Errorf("eqc classes[%q][%q] = %q, want it to agree with its key", ns, key, class.Comparable())
+		}
+	}
+
 	return got
 }
 
@@ -217,7 +234,7 @@ func TestUpdateRLabelsEmptyRelevantSet(t *testing.T) {
 	if got := classes(t, pods, "ns1"); !mapsEqual(got, want) {
 		t.Errorf("classes(ns1) = %v, want %v", got, want)
 	}
-	if got, want := len(pods.eqc["ns2"]), 1; got != want {
+	if got, want := len(pods.eqcToPod["ns2"]), 1; got != want {
 		t.Errorf("len(eqc[ns2]) = %v, want %v", got, want)
 	}
 }
@@ -290,7 +307,7 @@ func TestUpdateRLabelsUnscheduledPod(t *testing.T) {
 	if got, want := len(pods.nodes), 0; got != want {
 		t.Errorf("len(nodes) = %v, want %v", got, want)
 	}
-	if got, want := len(pods.eqc["ns1"]), 1; got != want {
+	if got, want := len(pods.eqcToPod["ns1"]), 1; got != want {
 		t.Errorf("len(eqc[ns1]) = %v, want %v", got, want)
 	}
 }
