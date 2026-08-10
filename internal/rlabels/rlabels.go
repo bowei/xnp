@@ -31,7 +31,16 @@ func (b *Builder) Merge(ns string, labels set.Set[string]) {
 		return
 	}
 	if cur, ok := b.l[ns]; ok {
-		cur.Insert(labels.UnsortedList()...)
+		// A key at a time rather than through the variadic Insert, which can
+		// only be called on a materialized slice and so pays an UnsortedList
+		// per merge. This is the innermost statement of the key merge -- it
+		// runs once per namespace a peer's namespaceSelector matches, per such
+		// peer, per policy, which is hundreds of times per policy on a cluster
+		// with many namespaces -- and that one slice was four fifths of
+		// everything NPolicies.Init allocated.
+		for key := range labels {
+			cur.Insert(key)
+		}
 		return
 	}
 	if b.l == nil {

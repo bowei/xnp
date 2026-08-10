@@ -2,14 +2,17 @@ BIN_DIR := bin
 TOOLS_DIR := tools
 GOLANGCI_LINT := $(BIN_DIR)/golangci-lint
 
-.PHONY: all build build-xnp vet lint test check clean
+.PHONY: all build build-xnp build-npgraph vet lint test check clean
 
 all: build
 
-build: build-xnp
+build: build-xnp build-npgraph
 
 build-xnp:
 	go build -o $(BIN_DIR)/xnp ./cmd/xnp
+
+build-npgraph:
+	go build -o $(BIN_DIR)/npgraph ./cmd/npgraph
 
 vet:
 	go vet ./...

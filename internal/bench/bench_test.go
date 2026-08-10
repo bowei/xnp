@@ -1,5 +1,5 @@
-// Package bench measures the startup path: NPolicies.Init followed by
-// Pods.Init, the two calls a controller makes once a watch has synced.
+// Package bench measures the startup path: NPolicies.Init, then Pods.Init, then
+// Join.Init, the three calls a controller makes once a watch has synced.
 //
 // The question is how long it takes to process N policies by M pods, and how
 // that scales with the three things that make an object expensive: how many
@@ -8,6 +8,13 @@
 // carries (which sets what convert.RelevantLabels walks per pod), and how many
 // namespaces the two are spread over (which the key merge walks per
 // cross-namespace peer, and which partitions both stores).
+//
+// The join reads those same axes but not in the same direction, which is why it
+// is measured separately as well as in place. Its operands are equivalence
+// classes rather than objects, so the pod count reaches it only through how many
+// classes the pods fall into, and the predicate count is doing two opposing
+// things at once: more terms means more relevant keys and so more classes to
+// walk, and at the same time a narrower selector matching fewer of them.
 //
 // The fixtures live here rather than in the two stores' own test files because
 // they are one synthetic cluster shared by both: the relevant labels
@@ -22,8 +29,11 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/bowei/kvec/pkg/kv"
+	"github.com/bowei/xnp/internal/convert"
 	"github.com/bowei/xnp/internal/npolicies"
 	"github.com/bowei/xnp/internal/pods"
+	"github.com/bowei/xnp/internal/policyjoin"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,6 +75,15 @@ const (
 	// namespaceSelector selects on, so each such peer reaches about a quarter
 	// of the namespaces.
 	numTiers = 4
+
+	// joinLabels is the pod label count BenchmarkJoinInit holds fixed, at the
+	// top of labelCounts. The join sees the label count only through the
+	// classes, and a class is a projection onto the relevant keys -- which are
+	// the first predicates keys of the shared space. At or above every
+	// predicate count every pod carries every relevant key, the projection is
+	// exactly that key set, and the extra labels are dropped without changing a
+	// class. Sweeping the axis there would run the same join three times.
+	joinLabels = 20
 )
 
 func BenchmarkInit(b *testing.B) {
@@ -75,6 +94,12 @@ func BenchmarkInit(b *testing.B) {
 	// how finely the pods are divided. Five axes is a long run; -bench takes a
 	// regexp over the sub-benchmark names, which is how a single slice through
 	// it is measured.
+	//
+	// The join runs inside the loop with the two stores because it is the rest
+	// of the same startup: it is what turns them into something a renderer can
+	// read, and a controller that stopped after Pods.Init has resolved nothing.
+	// It also cannot be timed on its own here without keeping the stores each
+	// iteration built, which is what the isolated BenchmarkJoinInit is for.
 	for _, ns := range nsCounts {
 		for _, np := range policyCounts {
 			for _, m := range podCounts {
@@ -83,6 +108,7 @@ func BenchmarkInit(b *testing.B) {
 						name := fmt.Sprintf("ns=%d/policies=%d/pods=%d/pred=%d/labels=%d", ns, np, m, pred, labels)
 						b.Run(name, func(b *testing.B) {
 							namespaces := makeNamespaces(ns)
+							nsLabels := compileNamespaces(namespaces)
 							policies := policyFixture(policySpec{namespaces: ns, policies: np, predicates: pred})
 							podList := podFixture(podSpec{namespaces: ns, pods: m, labels: labels})
 
@@ -94,6 +120,10 @@ func BenchmarkInit(b *testing.B) {
 								}
 								p := pods.New()
 								if err := p.Init(nps.RLabels(), podSeq(podList)); err != nil {
+									b.Fatal(err)
+								}
+								var j policyjoin.Join
+								if err := j.Init(nps, p, nsLabels); err != nil {
 									b.Fatal(err)
 								}
 							}
@@ -168,6 +198,76 @@ func BenchmarkPodsInit(b *testing.B) {
 			}
 		}
 	}
+}
+
+// BenchmarkJoinInit isolates the join, against stores the two earlier calls
+// built. Building them here rather than hand-rolling classes is not a
+// convenience: the relevant labels the policies contribute are what the classes
+// are projected onto, so classes built any other way are a projection the
+// controller never produces and the selectors would be matched against the
+// wrong key set.
+//
+// The label axis is fixed (see joinLabels) and the other four are swept,
+// because none of them reaches the join the way it reaches the stores. The pod
+// count arrives only as how many classes the pods fall into, which saturates:
+// once every projection the key set admits has a pod in it, ten times the pods
+// is the same join. The namespace count is the one that can grow the output
+// superlinearly, since a peer's namespaceSelector matches about a quarter of
+// the namespaces and pulls each one's classes into every rule carrying it.
+func BenchmarkJoinInit(b *testing.B) {
+	for _, ns := range nsCounts {
+		for _, np := range policyCounts {
+			for _, m := range podCounts {
+				for _, pred := range predCounts {
+					name := fmt.Sprintf("ns=%d/policies=%d/pods=%d/pred=%d", ns, np, m, pred)
+					b.Run(name, func(b *testing.B) {
+						namespaces := makeNamespaces(ns)
+						nsLabels := compileNamespaces(namespaces)
+
+						nps := npolicies.New()
+						policies := policyFixture(policySpec{namespaces: ns, policies: np, predicates: pred})
+						if err := nps.Init(namespaces, npSeq(policies)); err != nil {
+							b.Fatal(err)
+						}
+						p := pods.New()
+						podList := podFixture(podSpec{namespaces: ns, pods: m, labels: joinLabels})
+						if err := p.Init(nps.RLabels(), podSeq(podList)); err != nil {
+							b.Fatal(err)
+						}
+
+						b.ReportAllocs()
+						for b.Loop() {
+							var j policyjoin.Join
+							if err := j.Init(nps, p, nsLabels); err != nil {
+								b.Fatal(err)
+							}
+						}
+						// Per policy, not per object: the join walks the
+						// policies and never the pods. The figure is not
+						// expected flat across the pod and namespace axes --
+						// what one policy costs is how many classes its rules
+						// reach -- and that is the point of reporting it.
+						reportPerObject(b, np)
+					})
+				}
+			}
+		}
+	}
+}
+
+// compileNamespaces builds the namespace label sets the join resolves
+// namespaceSelectors against. The controller compiles them once from the synced
+// cache and hands the same map to NPolicies.Init and Join.Init, so they are
+// fixture here rather than loop body: NPolicies.Init compiles its own copy
+// internally and is already paying for that inside the measurement, and timing
+// a second pass over the namespaces would charge the join for it twice.
+func compileNamespaces(namespaces map[string]*corev1.Namespace) map[string]*kv.KV {
+	out := make(map[string]*kv.KV, len(namespaces))
+	for name, ns := range namespaces {
+		labels := convert.LabelsToKV(ns.Labels)
+		out[name] = &labels
+	}
+	return out
 }
 
 // reportPerObject adds the per-object cost alongside ns/op. The sweep spans two
