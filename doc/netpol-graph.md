@@ -127,3 +127,58 @@ metadata in the comments.
 
 * `-context`: cluster .kube context
 
+## Implementation notes
+
+Source: `cmd/npgraph/`. `make build` puts the binary in `bin/npgraph`.
+
+**Graph metadata is in DOT attributes, not comments.** A comment is exactly what
+every tool in a graphviz pipeline is entitled to discard, so a graph that had
+been through `dot` would come back unreadable. Attributes survive it and
+graphviz ignores the ones it does not know:
+
+```dot
+"pod-3" [kind="pod", namespace="ns-0", node="node-1"];
+"np-0"  [kind="netpol", namespace="ns-0", direction="ingress", type="crossNSFocused"];
+```
+
+The attributes are optional on the way in. A hand-written graph -- the example
+above, with a `kind` on each vertex -- places its pods by its edges, takes a
+policy's namespace from its In set, and has its type inferred from the reach of
+its Out set.
+
+**Params are YAML** (`generate params` writes YAML; JSON is a subset of it and
+also parses). Anything the file leaves out keeps its default, and an unknown key
+is an error rather than a silently ignored one. Beyond the parameters above:
+
+* `namespacePeerFraction`: the share of policies whose peers are whole
+  namespaces (`namespaceSelector` with no `podSelector`) rather than individual
+  pods. One peer standing for a thousand pods is very different work for a
+  renderer than a thousand peers at the same out-degree.
+* `focusedNamespaces` / `broadNamespaces`: how many namespaces the Out set of a
+  CrossNSFocused and a CrossNSBroad policy spans. Both clamp to their side of
+  the ten-namespace boundary, and to the number of namespaces that exist.
+
+Every degree is clamped to what the graph can supply -- a policy cannot select
+more pods than its namespace holds -- and the type mix is allocated by largest
+remainder, so the counts are exact rather than binomially close.
+
+**Labels.** Each policy gets two labels: `npgraph.io/in-<policy>` on the pods it
+applies to, `npgraph.io/out-<policy>` on the pods it names as peers. Pod-level
+peers are one peer per namespace (a peer ANDs its two selectors), except for a
+Global policy, which collapses to a single peer with an empty
+`namespaceSelector` -- "every namespace" is what the type means. Namespaces
+carry `kubernetes.io/metadata.name`, which every namespaceSelector matches on.
+
+**`fetch` shells out to `kubectl`** rather than linking client-go: three list
+calls do not justify the dependency and the kubeconfig loading, and anyone with
+a `-context` to pass already has kubectl. A policy declaring both policyTypes
+becomes two vertices (`ns/name#ingress`, `ns/name#egress`), since a vertex
+carries one direction. IPBlock peers are dropped -- the graph has no vertex for
+an address.
+
+**The UI** draws the graph itself, as four columns, rather than shelling out to
+graphviz. It posts the params and seed back to `/generate`, and
+`/download/graph.dot` and `/download/k8s.yaml` hand over the same bytes the
+command line produces. Graphs past 600 vertices get their DOT and YAML but no
+drawing.
+

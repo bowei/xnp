@@ -147,7 +147,15 @@ func TestRunErrors(t *testing.T) {
 			// would silently generate a different cluster than the file names.
 			name:    "graph and params together",
 			args:    []string{"generate", "k8s", "-graph", missing, "-params", missing},
-			wantErr: "mutually exclusive",
+			wantErr: "-graph and -params are mutually exclusive",
+		},
+		{
+			// Same for a seed, which is caught by asking which flags were set:
+			// 0 is a seed a user may well have chosen, so the default is no
+			// evidence either way.
+			name:    "graph and seed together",
+			args:    []string{"generate", "k8s", "-graph", missing, "-seed", "0"},
+			wantErr: "-graph and -seed are mutually exclusive",
 		},
 		{name: "invalid params", args: []string{"generate", "graph", "-params", writeParams(t, "pods: 0")}, wantErr: "pods must be > 0"},
 	} {
