@@ -1,0 +1,14 @@
+digraph w1 {
+Namespace -> NetworkPolicy;
+NetworkPolicy -> Predicates;
+Predicates -> RelevantLabels;
+Pod -> EqC;
+RelevantLabels -> EqC;
+Predicates -> EqcJoinPred;
+EqC -> EqcJoinPred;
+Pod -> PodJoinNode;
+KNode -> PodJoinNode;
+EqcJoinPred -> EqcPolicyOutcome;
+EqcPolicyOutcome -> Output;
+PodJoinNode -> Output;
+}
